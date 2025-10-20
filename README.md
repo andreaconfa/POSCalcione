@@ -65,9 +65,18 @@ L’app sarà disponibile su: `http://<host>:8000`
 ---
 
 ## UI
+Visualizzazione POS
 ![Pagina POS](docs/screenshots/POS.gif)
+
+Schermata ordini di preparazione cucina
 ![KDS](docs/screenshots/KDS.gif)
+
+Diplay clienti per chiamata numero
 ![Display Chiamata](docs/screenshots/client_display.gif)
+
+Pagina di gestione prodotti/categorie/customizzazioni
 ![Amministrazione](docs/screenshots/admin1.gif)
+
+Gestione Stampanti
 ![Gestione Stampanti](docs/screenshots/printer.gif)
 ---
