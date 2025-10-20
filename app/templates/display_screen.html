@@ -1,0 +1,394 @@
+{% extends "base.html" %}
+{% block content %}
+
+<script>document.body.classList.add('screen-mode');</script>
+
+<style>
+  :root { --num-scale: 1; }
+  body, html { width:100%; height:100%; }
+  body.screen-mode header, body.screen-mode .topbar { display:none!important; }
+  body.screen-mode main, body.screen-mode .container, body.screen-mode .page,
+  body.screen-mode .content, body.screen-mode .wrapper {
+    max-width:none!important; width:100%!important; margin:0!important; padding:0!important; border:0!important; background:transparent!important;
+  }
+  body{ background:#06080b; }
+  .display-wrap{ min-height:100vh; height:100vh; width:100vw; padding:clamp(8px,1.5vw,16px); box-sizing:border-box; background:#0d1219; overflow:hidden; }
+  .display-wrap[data-measuring="1"] .nums{ overflow:visible!important; }
+  .grid-all{ display:grid; gap:clamp(10px,1.6vw,16px); grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); height:calc(100vh - clamp(16px,3vw,32px)); }
+  .panel{ background:#121824; border:1px solid #273043; border-radius:16px; padding:clamp(12px,1.8vw,18px); display:flex; flex-direction:column; min-height:0; box-shadow:0 10px 28px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.03); }
+  .panel h3{ margin:0 0 .4em 0; font-size:clamp(22px,2.8vw,42px); letter-spacing:.6px; color:#e6eefc; text-shadow:0 2px 0 rgba(255,255,255,.06); }
+  .nums{ display:flex; flex-wrap:wrap; gap:clamp(10px,1.4vw,16px); overflow:auto; padding-right:6px; }
+  .nums::-webkit-scrollbar{ width:10px; } .nums::-webkit-scrollbar-thumb{ background:#243041; border-radius:10px; }
+  .num{
+    font-weight:1000; letter-spacing:.04em; background:#045202; border:2px solid #223048; color:#eaf2ff; border-radius:18px;
+    padding: calc(var(--num-scale)*clamp(12px,2.2vw,28px)) calc(var(--num-scale)*clamp(18px,3vw,34px));
+    text-align:center; min-width:calc(var(--num-scale)*clamp(200px,26vw,360px));
+    box-shadow:0 2px 0 rgba(255,255,255,.05) inset, 0 16px 38px rgba(0,0,0,.35);
+    font-size:calc(var(--num-scale)*clamp(64px,9.5vw,160px)); line-height:1;
+    text-shadow:0 2px 0 rgba(255,255,255,.06), 0 12px 26px rgba(0,0,0,.55);
+  }
+  .nums.one .num{
+    font-size:calc(var(--num-scale)*clamp(96px,12vw,200px));
+    min-width:calc(var(--num-scale)*clamp(240px,32vw,480px));
+    padding: calc(var(--num-scale)*clamp(16px,2.8vw,34px)) calc(var(--num-scale)*clamp(22px,3.6vw,42px));
+  }
+  .overlay[hidden]{ display:none!important; }
+  .overlay{ position:fixed; inset:0; background:rgba(5,10,18,0.94); display:grid; place-items:center; z-index:9999; padding:3vw; }
+  .overlay-card{
+    text-align:center;
+    background: radial-gradient(1200px 400px at 50% -10%, rgba(58,103,255,.20), transparent 60%), #045202;
+    border:3px solid #3a67ff; border-radius:28px; padding:clamp(18px,3.2vw,56px);
+    box-shadow:0 24px 70px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05);
+    min-width:min(90vw,1600px); max-width:95vw;
+  }
+  .overlay-title{ color:#cdd9f0; font-size:clamp(28px,3.6vw,58px); font-weight:900; letter-spacing:.06em; text-transform:uppercase; margin-bottom:.4em; }
+  .overlay-number{
+    color:#fff; font-weight:1000; line-height:1; font-size:clamp(140px,20vw,320px); letter-spacing:.02em; margin-bottom:.2em;
+    text-shadow:0 3px 0 rgba(255,255,255,.08), 0 18px 40px rgba(0,0,0,.65), 0 0 80px rgba(58,103,255,.35);
+  }
+  .overlay-where{ color:#8ec5ff; font-size:clamp(32px,5vw,84px); font-weight:900; }
+  .audio-btn{ position:fixed; right:16px; bottom:16px; z-index:9999; background:#10b981; color:#04140f; border:0; border-radius:12px; padding:12px 16px; font-weight:900; cursor:pointer; box-shadow:0 8px 22px rgba(0,0,0,.35); }
+  .audio-btn.hidden{ display:none; }
+  @media (min-width:2000px){ .grid-all{ grid-template-columns:repeat(auto-fit,minmax(520px,1fr)); } }
+</style>
+
+<div id="display-wrap" class="display-wrap">
+  {% if initial_mode == "all" and initial_by_prefix is not none %}
+    <div class="panel">
+      <h3>Numeri pronti</h3>
+      <div class="nums" id="nums-ALL">
+        {% set _count = 0 %}
+        {% for px, seqs in initial_by_prefix.items() %}
+          {% for s in seqs %}
+            {% set _count = _count + 1 %}
+            <div class="num" data-prefix="{{ px }}" data-seq="{{ s }}">{{ px }} {{ s }}</div>
+          {% endfor %}
+        {% endfor %}
+        {% if _count == 0 %}
+          <div class="tag">Nessun numero pronto</div>
+        {% endif %}
+      </div>
+    </div>
+  {% elif initial_mode == "one" and initial_prefix and initial_seqs is not none %}
+    <div class="panel">
+      <h3>{{ "Casetta" if initial_prefix=="C" else ("Esterno" if initial_prefix=="E" else "Postazione " ~ initial_prefix) }}</h3>
+      <div class="nums one" id="nums-{{ initial_prefix }}">
+        {% if initial_seqs %}
+          {% for s in initial_seqs %}
+            <div class="num" data-prefix="{{ initial_prefix }}" data-seq="{{ s }}">{{ initial_prefix }} {{ s }}</div>
+          {% endfor %}
+        {% else %}
+          <div class="tag">Nessun numero pronto</div>
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="panel">
+      <h3>Numeri pronti</h3>
+      <div class="nums" id="nums-ALL">
+        <div class="tag">Nessun numero pronto</div>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<div id="overlay" class="overlay" hidden>
+  <div class="overlay-card">
+    <div class="overlay-title">RITIRO</div>
+    <div id="overlay-number" class="overlay-number">X 999</div>
+    <div id="overlay-where"  class="overlay-where">Postazione</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // MODE/PREFIX dal server: /screen => mode="all", /screen/{prefix} => mode="one", prefix="C"/"E"/...
+  const MODE   = "{{ mode or 'all' }}";
+  const PREFIX = ("{{ prefix or '' }}").toUpperCase();
+  const wrap   = document.getElementById("display-wrap");
+	
+	function ensureGridAll(){
+	  // crea il contenitore .grid-all se non esiste
+	  let grid = wrap.querySelector(".grid-all");
+	  if (!grid) {
+		grid = document.createElement("div");
+		grid.className = "grid-all";
+		wrap.innerHTML = "";          // pulisci fallback "Caricamento…"
+		wrap.appendChild(grid);
+	  }
+	  return grid;
+	}
+	function ensureAllContainer(){
+	  // crea il pannello + #nums-ALL se non esistono
+	  let box = document.getElementById("nums-ALL");
+	  if (box) return box;
+	  wrap.innerHTML = `
+		<div class="panel">
+		  <h3>Numeri pronti</h3>
+		  <div class="nums" id="nums-ALL"><div class="tag">Nessun numero pronto</div></div>
+		</div>`;
+	  return document.getElementById("nums-ALL");
+	}
+  /* ---------- TITOLO PANNELLI PERSONALIZZATO ---------- */
+  const NAMES = { C:"Ordini CASETTA pronti:", E:"Ordini BANCO ESTERNO pronti:" };
+  function panelOf(numsEl){ return numsEl?.closest?.('.panel')||null; }
+  function setPanelTitle(prefix, panelEl){
+    if (!panelEl) return;
+    let h = panelEl.querySelector('h3');
+    if (!h){ h = document.createElement('h3'); panelEl.insertBefore(h, panelEl.firstChild); }
+    h.textContent = NAMES[prefix] || `Postazione ${prefix}`;
+  }
+  function applyCustomNames(){
+    wrap.querySelectorAll('.nums[id^="nums-"]').forEach(nums=>{
+      const m = nums.id.match(/^nums-([A-Za-z0-9]+)$/); if(!m) return;
+      setPanelTitle(m[1].toUpperCase(), panelOf(nums));
+    });
+  }
+
+  /* ---------- AUTOSIZE (no scroll) ---------- */
+  function overflowsWrap(){ return (wrap.scrollHeight>wrap.clientHeight)||(wrap.scrollWidth>wrap.clientWidth); }
+  function fitAll(){
+    if (!wrap) return;
+    wrap.setAttribute('data-measuring','1');
+    let lo=0.35, hi=1.0, best=hi;
+    wrap.style.setProperty('--num-scale', String(hi));
+    if(!overflowsWrap()){ wrap.removeAttribute('data-measuring'); return; }
+    for(let i=0;i<14;i++){
+      const mid=(lo+hi)/2;
+      wrap.style.setProperty('--num-scale', String(mid));
+      if(overflowsWrap()) hi=mid; else { lo=mid; best=mid; }
+    }
+    wrap.style.setProperty('--num-scale', String(best));
+    wrap.removeAttribute('data-measuring');
+  }
+
+  // --------- FRAMMENTI: niente più /display//fragment ----------
+  async function loadFragment(){
+    const isOne = (MODE === "one" && PREFIX.length > 0);
+	  const url = isOne
+		? `/display/${PREFIX}/fragment?t=${Date.now()}`
+		: `/display/fragment?t=${Date.now()}`;   // <<< questo è quello che ora deve rispondere 200
+
+    try{
+      const r = await fetch(url, { cache: "no-store" });
+		if (!r.ok) {
+		  console.warn("Fragment fetch failed", r.status, url);
+		  if (isOne) {
+			wrap.innerHTML = `
+			  <div class="panel">
+				<h3>Postazione ${PREFIX}</h3>
+				<div class="nums one" id="nums-${PREFIX}">
+				  <div class="tag">Nessun numero pronto</div>
+				</div>
+			  </div>`;
+		  } else {
+			ensureAllContainer(); // un solo contenitore per TUTTI
+		  }
+		  return;
+		}
+      wrap.innerHTML = await r.text();
+	  function normalizeEmptyTags(){
+	  wrap.querySelectorAll('.nums').forEach(n=>{
+		const tag = n.querySelector('.tag');
+		if (tag && n.querySelector('.num')) tag.remove();
+	  });
+	}
+		applyCustomNames();
+		normalizeEmptyTags();   
+      requestAnimationFrame(()=>requestAnimationFrame(fitAll));
+    }catch(e){
+      console.warn("Fragment fetch error", e);
+    }
+  }
+
+	function containerFor(prefix){
+	  if (MODE === "all") {
+		return document.getElementById("nums-ALL");
+	  }
+	  let box = document.getElementById(`nums-${prefix}`);
+	  if (box){ setPanelTitle(prefix, panelOf(box)); return box; }
+	  const el = wrap.querySelector(".nums"); if (el) setPanelTitle(prefix, panelOf(el));
+	  return el;
+	}
+
+	function addNumber(prefix, seq){
+	  const box = containerFor(prefix);
+	  if(!box){ loadFragment().catch(()=>{}); return; }
+
+	  // evita duplicati
+	  if (box.querySelector(`.num[data-prefix="${prefix}"][data-seq="${seq}"]`)) return;
+
+	  // crea il box del numero
+	  const el = document.createElement("div");
+	  el.className = "num";
+	  el.dataset.prefix = prefix;
+	  el.dataset.seq = String(seq);
+	  el.textContent = `${prefix} ${seq}`;
+
+	  // rimuovi eventuale tag "Nessun numero pronto"
+	  const empty = box.querySelector(".tag");
+	  if (empty) empty.remove();
+
+	  // 👉 PREPEND invece di append: inserisci prima del primo .num (o all'inizio)
+	  const firstNum = box.querySelector(".num");
+	  if (firstNum) {
+		box.insertBefore(el, firstNum);
+	  } else {
+		box.insertBefore(el, box.firstChild);
+	  }
+
+	  // rifit dopo due frame
+	  requestAnimationFrame(()=>requestAnimationFrame(fitAll));
+	}
+  function removeNumber(prefix,seq){
+    const el=wrap.querySelector(`.num[data-prefix="${prefix}"][data-seq="${seq}"]`);
+    if(el){
+      const parent=el.parentElement; el.remove();
+      if(parent && !parent.querySelector(".num")){
+        const tag=document.createElement("div"); tag.className="tag"; tag.textContent="Nessun numero pronto"; parent.appendChild(tag);
+      }
+      requestAnimationFrame(()=>requestAnimationFrame(fitAll));
+    } else { loadFragment().catch(()=>{}); }
+  }
+
+  /* ---------- Overlay + dedup ---------- */
+  const ov=document.getElementById("overlay");
+  const numEl=document.getElementById("overlay-number");
+  const where=document.getElementById("overlay-where");
+  let queue=[], showing=false, overlayTimer=null, allowDismissAt=0;
+  const seen=new Map();
+  function keyOf(p,s){ return `${p}-${s}`; }
+  function isDuplicate(p,s){
+    const k=keyOf(p,s), now=performance.now();
+    for(const [kk,exp] of seen){ if(exp<=now) seen.delete(kk); }
+    const exp=seen.get(k); if(exp && exp>now) return true; seen.set(k, now+8000); return false;
+  }
+  function kitchenNameFromPrefix(px){ return NAMES[px] || `Postazione ${px}`; }
+
+  function beep(){
+    if (typeof playDing==="function"){ try{ playDing(); }catch{} return; }
+  }
+
+  function showNext(){
+    if (showing || queue.length===0) return;
+    showing=true;
+    const {prefix,seq,kitchenName}=queue.shift();
+    numEl.textContent=`${prefix} ${seq}`;
+    where.textContent=kitchenName || kitchenNameFromPrefix(prefix);
+    ov.hidden=false;
+    beep();
+    addNumber(prefix,seq);
+    allowDismissAt=performance.now()+5000;
+    clearTimeout(overlayTimer);
+    overlayTimer=setTimeout(()=>{ ov.hidden=true; showing=false; showNext(); }, 5000);
+  }
+  function enqueuePopup(prefix,seq,kitchenName){ queue.push({prefix,seq,kitchenName}); showNext(); }
+  ov.addEventListener('click',()=>{ if(performance.now()<allowDismissAt) return; clearTimeout(overlayTimer); ov.hidden=true; showing=false; showNext(); });
+  document.addEventListener('keydown',(e)=>{ if(e.key!=='Escape'||performance.now()<allowDismissAt) return; clearTimeout(overlayTimer); ov.hidden=true; showing=false; showNext(); });
+
+  document.addEventListener("ws-poke",(ev)=>{
+    try{
+      const m=ev.detail||{};
+      if(m.type==="ticket_ready"){
+        if(MODE==="all" || (MODE==="one" && m.prefix===PREFIX)){
+          if(!isDuplicate(m.prefix,m.seq)){ enqueuePopup(m.prefix,m.seq,m.kitchen_name); addNumber(m.prefix,m.seq); }
+        }
+      } else if(m.type==="ticket_delivered"){
+        if(MODE==="all" || (MODE==="one" && m.prefix===PREFIX)){ removeNumber(m.prefix,m.seq); }
+      }
+    }catch(e){ console.warn("[display] ws-poke parse",e); }
+  });
+
+  try{
+    const loc=window.location;
+    const ws=new WebSocket((loc.protocol==="https:"?"wss://":"ws://")+loc.host+"/ws");
+    ws.addEventListener("message",(ev)=>{
+      try{
+        const m=JSON.parse(ev.data||"{}");
+        if(m.type==="ticket_ready"){
+          if(MODE==="all" || (MODE==="one" && m.prefix===PREFIX)){
+            if(!isDuplicate(m.prefix,m.seq)){ enqueuePopup(m.prefix,m.seq,m.kitchen_name); addNumber(m.prefix,m.seq); }
+          }
+        } else if(m.type==="ticket_delivered"){
+          if(MODE==="all" || (MODE==="one" && m.prefix===PREFIX)){ removeNumber(m.prefix,m.seq); }
+        }
+      }catch(e){ console.warn("[display] WS local parse",e); }
+    });
+  }catch(e){ console.warn("[display] WS local init",e); }
+
+  loadFragment();
+  setInterval(loadFragment, 8000);
+  window.addEventListener('resize', ()=>requestAnimationFrame(()=>requestAnimationFrame(fitAll)));
+  window.addEventListener('orientationchange', ()=>requestAnimationFrame(()=>requestAnimationFrame(fitAll)));
+})();
+</script>
+
+<button id="audio-enable" class="audio-btn">🔊 Abilita audio</button>
+
+<script>
+let audioUnlocked=false, audioCtx=null;
+
+async function reallyResume(){
+  if(!audioCtx) return false;
+  if(audioCtx.state!=="running"){
+    try{ await audioCtx.resume(); }catch{}
+  }
+  return audioCtx.state==="running";
+}
+
+async function unlockAudio(){
+  try{
+    if(!audioCtx){
+      audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    }
+    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    g.gain.value=0.0001; o.connect(g).connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime+0.03);
+    const ok=await reallyResume();
+    audioUnlocked=ok;
+    document.getElementById('audio-enable')?.classList.toggle('hidden', ok);
+    if(ok) localStorage.setItem('display_audio_unlocked','1');
+  }catch(e){ console.warn("Audio unlock failed:",e); }
+}
+
+function primeOnFirstGesture(){
+  const once=async ()=>{
+    await unlockAudio();
+    ['pointerdown','touchstart','keydown','click'].forEach(t=>window.removeEventListener(t, once, true));
+  };
+  ['pointerdown','touchstart','keydown','click'].forEach(t=>window.addEventListener(t, once, true));
+}
+primeOnFirstGesture();
+
+document.addEventListener('visibilitychange', async ()=>{
+  if(document.visibilityState==='visible' && audioCtx && audioCtx.state!=='running'){
+    await unlockAudio();
+  }
+});
+
+function playDing(){
+  if(!audioCtx){ return; }
+  if(audioCtx.state!=='running'){ return; }
+
+  const now=audioCtx.currentTime;
+  const osc1=audioCtx.createOscillator();
+  const osc2=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  osc1.type='sine'; osc2.type='sine';
+  osc1.frequency.setValueAtTime(880, now);
+  osc2.frequency.setValueAtTime(1318.5, now);
+  gain.gain.setValueAtTime(0.001, now);
+  gain.gain.linearRampToValueAtTime(0.35, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0008, now + 1.4);
+  osc1.connect(gain); osc2.connect(gain); gain.connect(audioCtx.destination);
+  osc1.start(now); osc2.start(now); osc1.stop(now + 1.5); osc2.stop(now + 1.5);
+}
+
+const audioBtn=document.getElementById('audio-enable');
+if(audioBtn){
+  if(localStorage.getItem('display_audio_unlocked')==='1'){ unlockAudio(); }
+  audioBtn.addEventListener('click', unlockAudio);
+}
+</script>
+
+{% endblock %}

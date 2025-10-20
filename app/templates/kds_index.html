@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 style="margin-top:0;">KDS – Seleziona postazione</h2>
+
+<style>
+  .display-card {
+    display:flex; flex-direction:column; gap:10px; padding:14px;
+  }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; }
+  .btn { padding:8px 10px; border:1px solid var(--border, #2a3550); border-radius:8px; text-decoration:none; }
+  .btn.primary { background:#1b3a7a; border-color:#1b3a7a; color:#fff; }
+  .muted { opacity:.8; font-size:12px; }
+</style>
+
+<div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:12px;">
+
+  {% if kitchens and kitchens|length > 0 %}
+    {% for k in kitchens %}
+    <div class="card display-card">
+      <div style="font-size:22px; font-weight:800; margin-bottom:6px;">
+        {{ k.name }} <span class="muted">({{ k.prefix }})</span>
+      </div>
+      <div class="text-s" style="opacity:.8;">Apri la console di produzione per questa postazione</div>
+      <div class="actions">
+        <!-- rotta richiesta: /kds/{PREFISSO} -->
+        <a class="btn primary" href="/kds/{{ k.prefix }}" target="_blank" rel="noopener">Apri KDS ({{ k.prefix }})</a>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="card display-card">
+      <div style="font-size:18px; font-weight:700;">Nessuna postazione</div>
+      <div class="text-s" style="opacity:.8;">Crea postazioni in <a href="/admin">/admin</a> → Postazioni (KDS).</div>
+    </div>
+  {% endif %}
+
+</div>
+
+<div class="muted" style="margin-top:10px;">Suggerimento: usa F11 / modalità kiosk per il full screen.</div>
+
+{% endblock %}

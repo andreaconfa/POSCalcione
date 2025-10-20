@@ -1,0 +1,588 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+  /* ===== Admin layout helpers (solo per questa pagina) ===== */
+  .admin-wrap { display: grid; gap: 16px; }
+  .admin-row { display: grid; gap: 12px; }
+  .admin-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .admin-grid-1 { grid-template-columns: 1fr; }
+  .admin-card { padding: 12px; }
+  .admin-card > h3 { margin: 0 0 10px 0; }
+  .admin-spacer { margin-bottom: 18px; }
+
+  /* Prodotto: griglia coerente */
+  .product-grid {
+    display: grid;
+    grid-template-columns: 120px 1fr 1fr 1fr 1fr;
+    gap: 10px;
+    align-items: center;
+  }
+  .product-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  /* Tabella customizzazioni responsiva */
+  .table-shell { overflow: auto; border-radius: 8px; border:1px solid var(--border, rgba(255,255,255,.12)); }
+  .table-shell table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  .table-shell th, .table-shell td { padding: 8px; border-bottom: 1px solid var(--border, rgba(255,255,255,.12)); vertical-align: middle; }
+  .table-shell thead th { position: sticky; top: 0; background: var(--card, #111); z-index: 1; }
+
+  /* Box esito */
+  .notice { border-left:4px solid #22c55e; margin-bottom:12px; }
+  .notice.danger { border-left-color:#ef4444; }
+
+  /* Cards azioni rapide: allineamento coerente */
+  .quick-card {
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+
+  /* Responsive */
+  @media (max-width: 1200px){
+    .admin-grid-3 { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 1000px){
+    .product-grid { grid-template-columns: 100px 1fr; align-items: start; }
+    .product-grid > div:nth-child(3),
+    .product-grid > div:nth-child(4),
+    .product-grid > div:nth-child(5) { grid-column: 1 / -1; }
+    .product-actions { flex-wrap: wrap; }
+  }
+
+  /* Piccole rifiniture */
+  .help { font-size: 12px; opacity:.75; margin-top:4px; }
+  .muted { opacity:.8; }
+  .input, .select select { width: 100%; }
+</style>
+
+<!-- banner esiti -->
+{% if request.query_params.get('ok') %}
+  <div class="card notice">✅ Operazione completata.</div>
+{% endif %}
+{% if request.query_params.get('updated') %}
+  <div class="card notice">✅ Prodotto aggiornato.</div>
+{% endif %}
+{% if request.query_params.get('deleted') %}
+  <div class="card notice danger">🗑️ Prodotto eliminato.</div>
+{% endif %}
+{% if request.query_params.get('cat_added') %}
+  <div class="card notice">✅ Categoria aggiunta.</div>
+{% endif %}
+{% if request.query_params.get('cat_deleted') %}
+  <div class="card notice danger">🗑️ Categoria eliminata.</div>
+{% endif %}
+{% if request.query_params.get('cat_updated') %}
+  <div class="card notice">✅ Categoria aggiornata.</div>
+{% endif %}
+{% if request.query_params.get('seq_reset') %}
+  <div class="card notice">✅ Numerazione azzerata.</div>
+{% endif %}
+{% if request.query_params.get('seq_align') %}
+  <div class="card notice">✅ Numerazione riallineata.</div>
+{% endif %}
+{% if request.query_params.get('closed') %}
+  <div class="card notice">✅ Giorno chiuso: ticket consegnati e numerazioni azzerate.</div>
+{% endif %}
+{% if request.query_params.get('cleared') %}
+  <div class="card notice">✅ Ticket delivered rimossi.</div>
+{% endif %}
+{% if request.query_params.get('printok') %}
+  <div class="card notice">✅ Stampa di prova inviata.</div>
+{% endif %}
+{% if request.query_params.get('kdel_ok') %}
+  <div class="card notice">✅ Postazione eliminata.</div>
+{% endif %}
+{% if request.query_params.get('kdel_notfound') %}
+  <div class="card notice danger">❌ Postazione non trovata.</div>
+{% endif %}
+{% if request.query_params.get('kdel_inuse') %}
+  <div class="card notice danger">
+    ❌ Impossibile eliminare: esistono prodotti, categorie o ticket collegati a questa postazione.
+    Rimuovi o riassegna prima i riferimenti.
+  </div>
+{% endif %}
+{% if request.query_params.get('kfix_unlinked') %}
+  <div class="card notice">✅ Prodotti e categorie scollegati dalla postazione.</div>
+{% endif %}
+<h2 style="margin-top:0;">Pannello di gestione</h2>
+
+<div class="admin-wrap">
+
+  <!-- Azioni rapide -->
+  <div class="admin-row admin-grid-3 admin-spacer">
+    <div class="card admin-card quick-card">
+      <div>
+        <div style="font-weight:700;">Stampa di prova</div>
+        <div class="text-s muted">Scontrino demo per ogni postazione + categorie senza routing.</div>
+      </div>
+      <form method="post" action="/admin/print-test" onsubmit="return confirm('Inviare stampa di prova?');">
+        <button class="btn" type="submit">Stampa di prova</button>
+      </form>
+    </div>
+	<div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+	  <div>
+		<div style="font-weight:700;">Report vendite</div>
+		<div class="text-s">Quantità per prodotto e incasso totale.</div>
+	  </div>
+	  <a class="btn" href="/admin/sales">Apri report</a>
+	</div>
+	
+	<div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+	  <div>
+		<div style="font-weight:700;">Scontrini</div>
+		<div class="text-s">Crea e definisci le regole di stampa</div>
+	  </div>
+	  <a class="btn" href="/admin/receipts">Gestione Stampe</a>
+	</div>
+	
+	<div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+	  <div>
+		<div style="font-weight:700;">Storico Scontrini</div>
+		<div class="text-s">Visualizza e ristampa scontrini</div>
+	  </div>
+	  <a class="btn" href="/admin/receipts/logs">Storico Scontrini</a>
+	</div>	
+	
+	<div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+	  <div>
+		<div style="font-weight:700;">Storico ordini</div>
+		<div class="text-s">Consulta tutti gli ordini con filtri per data e ora.</div>
+	  </div>
+	  <a class="btn" href="/admin/orders">Apri storico</a>
+	</div>
+    <div class="card admin-card quick-card">
+      <div>
+        <div style="font-weight:700;">Chiudi giornata</div>
+        <div class="text-s muted">Ticket → consegnato, azzera numerazioni.</div>
+      </div>
+      <form method="post" action="/admin/close_day"
+            onsubmit="return confirm('Chiudere la giornata? Tutti i ticket -> consegnato e numerazioni azzerate.');">
+        <button class="btn" type="submit">Chiudi giornata</button>
+      </form>
+    </div>
+
+    <div class="card admin-card quick-card">
+      <div>
+        <div style="font-weight:700;">Pulisci consegnati</div>
+        <div class="text-s muted">Rimuove ticket con stato delivered.</div>
+      </div>
+      <form method="post" action="/admin/clear_delivered"
+            onsubmit="return confirm('Rimuovere tutti i ticket consegnati?');">
+        <button class="btn" type="submit">Pulisci</button>
+      </form>
+    </div>
+	
+  </div>
+
+  <!-- Export CSV -->
+  <div class="card admin-card admin-spacer">
+    <h3>Export CSV</h3>
+    <form method="get" action="/admin/export.csv" class="grid" style="grid-template-columns: 1fr 1fr auto; gap:8px; align-items:end;">
+      <div>
+        <label class="text-s">Dal</label>
+        <input class="input" type="date" name="start" required>
+      </div>
+      <div>
+        <label class="text-s">Al (incluso)</label>
+        <input class="input" type="date" name="end" required>
+      </div>
+      <div>
+        <button class="btn" type="submit">Scarica CSV</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ===========================
+       PRODOTTI
+       =========================== -->
+  <div class="card admin-card admin-spacer">
+    <h3>Prodotti</h3>
+
+    <!-- Aggiungi prodotto -->
+    <details open>
+      <summary style="cursor:pointer; font-weight:600; margin-bottom:10px;">Aggiungi prodotto</summary>
+      <form class="grid"
+            style="grid-template-columns: repeat(6, 1fr); gap:8px; align-items:end;"
+            method="post" action="/admin/product/add" enctype="multipart/form-data">
+        <div>
+          <label class="text-s">Nome</label>
+          <input class="input" type="text" name="name" required>
+        </div>
+        <div>
+          <label class="text-s">Prezzo (€)</label>
+          <input class="input" type="number" name="price_eur" min="0" step="0.01" required>
+        </div>
+        <div>
+          <label class="text-s">Categoria</label>
+          <select class="input" name="category_id">
+            <option value="">(nessuna)</option>
+            {% for c in categories %}
+              <option value="{{c.id}}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="text-s">Routing prodotto</label>
+          <select class="input" name="kitchen_id">
+            <option value="">(usa routing categoria / nessuno)</option>
+            {% for k in kitchens %}
+              <option value="{{k.id}}">{{ k.name }} ({{k.prefix}})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="text-s">Immagine (URL)</label>
+          <input class="input" type="text" name="image_url" placeholder="/static/">
+        </div>
+        <div>
+          <label class="text-s">Oppure carica file</label>
+          <input class="input" type="file" name="image_file" accept="image/*">
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <button class="btn" type="submit">Aggiungi</button>
+        </div>
+      </form>
+    </details>
+
+    <hr style="border:none; border-top:1px solid var(--border); margin:12px 0;">
+
+    <!-- Elenco prodotti -->
+    <div class="admin-row admin-grid-1">
+      {% for p in products %}
+      <form class="card admin-card" method="post" enctype="multipart/form-data" action="/admin/product/update">
+        <input type="hidden" name="product_id" value="{{p.id}}">
+        <div class="product-grid">
+
+          <!-- Thumb -->
+          <div>
+            {% if p.image_url %}
+              <img src="{{ p.image_url }}" alt="{{ p.name }}"
+                   style="width:120px; height:90px; object-fit:cover; border-radius:8px; border:1px solid var(--border);">
+            {% else %}
+              <div style="width:120px; height:90px; display:flex; align-items:center; justify-content:center;
+                          border:1px dashed var(--border); border-radius:8px; font-size:12px; color:#aaa;">
+                nessuna immagine
+              </div>
+            {% endif %}
+          </div>
+
+          <!-- Nome -->
+          <div>
+            <label class="text-s">Nome</label>
+            <input class="input" type="text" name="name" value="{{p.name}}" required>
+          </div>
+
+          <!-- Prezzo -->
+          <div>
+            <label class="text-s">Prezzo (€)</label>
+            <input class="input" type="number" name="price_eur"
+                   value="{{ (p.price_cents or 0) / 100 }}"
+                   min="0" step="0.01" required>
+          </div>
+
+          <!-- Categoria -->
+          <div>
+            <label class="text-s">Categoria</label>
+            <select class="input" name="category_id">
+              <option value="">(nessuna)</option>
+              {% for c in categories %}
+                <option value="{{c.id}}" {{ 'selected' if p.category_id == c.id else '' }}>{{ c.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="help">Se la categoria ha “nessun routing”, si stampa scontrino di <em>ritiro immediato</em>.</div>
+          </div>
+
+          <!-- Routing prodotto -->
+          <div>
+            <label class="text-s">Routing prodotto</label>
+            <select class="input" name="kitchen_id">
+              <option value="">(usa routing categoria / nessuno)</option>
+              {% for k in kitchens %}
+                <option value="{{k.id}}" {{ 'selected' if p.kitchen_id == k.id else '' }}>{{ k.name }} ({{k.prefix}})</option>
+              {% endfor %}
+            </select>
+            <div class="help">Se impostato, ha precedenza sulla categoria.</div>
+          </div>
+
+          <!-- Azioni immagine + bottoni -->
+          <div class="product-actions">
+            <div>
+              <label class="text-s">Immagine (URL)</label>
+              <input class="input" type="text" name="image_url" value="{{p.image_url or ''}}" placeholder="/static/">
+            </div>
+            <div>
+              <label class="text-s">Oppure carica file</label>
+              <input class="input" type="file" name="image_file" accept="image/*">
+            </div>
+
+            <div style="margin-left:auto; display:flex; gap:8px;">
+              <button type="submit" class="btn">Salva</button>
+              <button type="submit" class="btn danger"
+                      formaction="/admin/product/delete"
+                      formmethod="post"
+                      onclick="return confirm('Eliminare definitivamente {{p.name}}?');">
+                Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Customizzazioni prodotto -->
+        <details style="margin-top:10px;">
+          <summary style="cursor:pointer; font-weight:600;">⚙️ Customizzazioni (click per aprire)</summary>
+
+          <div style="margin-top:10px;">
+            <div class="table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:24%;">Nome</th>
+                    <th style="width:14%;">Tipo</th>
+                    <th style="width:12%;">Obbl.</th>
+                    <th style="width:30%;">Scelte (single/multi; separate da “;”)</th>
+                    <th style="width:14%;">Δ prezzo (cent)</th>
+                    <th style="width:6%;"></th>
+                  </tr>
+                </thead>
+                <tbody id="prompts-rows-{{p.id}}">
+                  {% for pr in prompts_by_product.get(p.id, []) %}
+                  <tr>
+                    <td>
+                      <input class="input" name="names" value="{{ pr.name }}">
+                      <input type="hidden" name="prompt_ids" value="{{ pr.id }}">
+                    </td>
+                    <td>
+                      <div class="select is-fullwidth">
+                        <select name="kinds">
+                          {% for k in ["boolean","single","multi"] %}
+                            <option value="{{k}}" {{ 'selected' if pr.kind==k else '' }}>{{k}}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                    </td>
+                    <td style="text-align:center;">
+                      <label class="checkbox">
+                        <input type="checkbox" name="requireds" {{ 'checked' if pr.required else '' }}> sì
+                      </label>
+                    </td>
+                    <td><input class="input" name="choices_csvs" value="{{ pr.choices_csv or '' }}"></td>
+                    <td><input class="input" name="deltas" value="{{ pr.price_delta_cents }}"></td>
+                    <td><button type="button" class="button is-light" onclick="this.closest('tr').remove()">✖</button></td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            <div style="display:flex; gap:8px; margin-top:8px;">
+              <button type="button" class="btn" onclick="addPromptRow({{p.id}})">+ Aggiungi riga</button>
+              <!-- submit customizzazioni -->
+              <button
+                type="submit"
+                class="btn is-link"
+                formaction="/admin/product/{{p.id}}/prompts/save"
+                formmethod="post">
+                Salva customizzazioni
+              </button>
+            </div>
+          </div>
+        </details>
+      </form>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ===========================
+       CATEGORIE
+       =========================== -->
+  <div class="card admin-card admin-spacer">
+    <h3>Categorie</h3>
+
+    <!-- Aggiungi categoria -->
+    <form class="grid" style="grid-template-columns: 1fr 1fr auto; gap:8px; align-items:end;"
+          method="post" action="/admin/category/add">
+      <div>
+        <label class="text-s">Nome categoria</label>
+        <input class="input" type="text" name="name" required>
+      </div>
+      <div>
+        <label class="text-s">Routing categoria</label>
+        <select class="input" name="kitchen_id">
+          <option value="">(nessuna postazione / ritiro immediato)</option>
+          {% for k in kitchens %}
+            <option value="{{k.id}}">{{ k.name }} ({{k.prefix}})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <button class="btn" type="submit">Aggiungi</button>
+      </div>
+    </form>
+
+    <hr style="border:none; border-top:1px solid var(--border); margin:12px 0;">
+
+    <!-- Lista categorie -->
+	<!-- Lista categorie -->
+	<div class="grid" style="grid-template-columns: 1fr; gap:8px;">
+	  {% for c in categories %}
+	  <form class="card" method="post" action="/admin/category/update" style="padding:12px;">
+		<input type="hidden" name="category_id" value="{{c.id}}">
+		<div class="grid" style="grid-template-columns: 2fr 2fr 1fr auto; gap:8px; align-items:end;">
+		  <div>
+			<label class="text-s">Nome</label>
+			<input class="input" type="text" value="{{c.name}}" disabled>
+			<div class="text-xs" style="opacity:.7; margin-top:4px;">(rename non previsto qui)</div>
+		  </div>
+		  <div>
+			<label class="text-s">Routing categoria</label>
+			<select class="input" name="kitchen_id">
+			  <option value="">(nessuna / ritiro immediato)</option>
+			  {% for k in kitchens %}
+				<option value="{{k.id}}" {{ 'selected' if c.kitchen_id == k.id else '' }}>{{ k.name }} ({{k.prefix}})</option>
+			  {% endfor %}
+			</select>
+		  </div>
+		  <div>
+			<label class="text-s">Colore</label>
+			<input class="input" type="color" name="color_hex" value="{{ c.color_hex or '#0ea5e9' }}">
+		  </div>
+		  <div style="display:flex; gap:8px;">
+			<button type="submit" class="btn">Salva</button>
+			<button type="submit" class="btn danger"
+					formaction="/admin/category/delete"
+					formmethod="post"
+					onclick="return confirm('Eliminare la categoria {{c.name}}?');">
+			  Elimina
+			</button>
+		  </div>
+		</div>
+	  </form>
+	  {% endfor %}
+	</div>
+
+
+  <!-- ===========================
+     POSTAZIONI (KITCHENS)
+     =========================== -->
+<div class="card admin-card admin-spacer">
+  <h3>Postazioni (KDS)</h3>
+
+  <!-- Aggiungi/Aggiorna una postazione -->
+  <form method="post" action="/admin/kitchen/add"
+        style="display:flex; gap:8px; align-items:end; margin:8px 0 12px 0; flex-wrap:wrap;">
+    <div>
+      <label class="text-s">Nome</label>
+      <input class="input" name="name" placeholder="Casetta / Esterno" required>
+    </div>
+    <div>
+      <label class="text-s">Prefisso</label>
+      <input class="input" name="prefix" placeholder="C / E" maxlength="6" required>
+    </div>
+    <div>
+      <button class="btn" type="submit">Aggiungi / Aggiorna</button>
+    </div>
+  </form>
+
+  <div class="text-s muted" style="margin-bottom:8px;">
+    Modifica numerazione o azzera/allinea al massimo ticket.
+  </div>
+
+  <div class="admin-row admin-grid-1">
+    {% if kitchens and kitchens|length > 0 %}
+      {% for k in kitchens %}
+      <div class="card admin-card">
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:8px; align-items:end;">
+
+          <!-- Info -->
+          <div>
+            <div class="text-s muted">Nome</div>
+            <div style="font-weight:700;">{{k.name}}</div>
+            <div class="help">Prefisso: {{k.prefix}}</div>
+          </div>
+
+          <!-- Azzera -->
+          <form method="post" action="/admin/seq/reset">
+            <input type="hidden" name="kitchen_id" value="{{k.id}}">
+            <div>
+              <label class="text-s">Prossimo numero</label>
+              <input class="input" type="number" name="next_seq_display" value="{{k.next_seq}}" disabled>
+            </div>
+            <div>
+              <button class="btn danger" type="submit"
+                      onclick="return confirm('Azzerare la numerazione di {{k.name}}?');">
+                Azzera
+              </button>
+            </div>
+          </form>
+
+          <!-- Allinea -->
+          <form method="post" action="/admin/seq/align" style="display:flex; gap:8px; align-items:end;">
+            <input type="hidden" name="kitchen_id" value="{{k.id}}">
+            <div>
+              <label class="text-s">Allinea a ultimo usato</label><br>
+              <button class="btn" type="submit">Allinea</button>
+            </div>
+          </form>
+
+          <!-- Link utili -->
+          <div style="text-align:right;">
+            <a class="btn" href="/screen/{{k.prefix}}" target="_blank">Apri Split</a><br>
+            <a class="btn" href="/screen_full/{{k.prefix}}" target="_blank" style="margin-top:6px;">Solo numeri</a><br>
+            <a class="btn" href="/admin/media?screen={{k.prefix}}" target="_blank" style="margin-top:6px;">Playlist</a>
+          </div>
+
+        </div>
+
+        <!-- Elimina postazione (se non referenziata) -->
+		<form method="post" action="/admin/kitchen/delete" onsubmit="return confirm('Eliminare la postazione {{k.name}} ({{k.prefix}})?');" style="display:flex; align-items:end;">
+		  <input type="hidden" name="kitchen_id" value="{{k.id}}">
+		  <button class="btn danger" type="submit">Elimina</button>
+		</form>
+		<form method="post" action="/admin/kitchen/unlink_pc" onsubmit="return confirm('Scollegare prodotti e categorie dalla postazione {{k.name}}?');" style="display:flex; align-items:end;">
+		  <input type="hidden" name="kitchen_id" value="{{k.id}}">
+		  <button class="btn" type="submit">Scollega prodotti/categorie</button>
+		</form>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="text-s" style="opacity:.8; padding:8px 0;">Nessuna postazione configurata. Aggiungine una qui sopra.</div>
+    {% endif %}
+  </div>
+</div>
+
+
+</div> <!-- /admin-wrap -->
+
+<script>
+function addPromptRow(pid){
+  const tbody = document.getElementById('prompts-rows-'+pid);
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>
+      <input class="input" name="names" placeholder="es. Salse">
+      <input type="hidden" name="prompt_ids" value="">
+    </td>
+    <td>
+      <div class="select is-fullwidth">
+        <select name="kinds">
+          <option value="boolean">boolean</option>
+          <option value="single" selected>single</option>
+          <option value="multi">multi</option>
+        </select>
+      </div>
+    </td>
+    <td style="text-align:center;">
+      <label class="checkbox"><input type="checkbox" name="requireds"> sì</label>
+    </td>
+    <td><input class="input" name="choices_csvs" placeholder="Maionese; Ketchup; BBQ"></td>
+    <td><input class="input" name="deltas" value="0"></td>
+    <td><button type="button" class="button is-light" onclick="this.closest('tr').remove()">✖</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,9 @@
+{
+  "printer": {
+    "enabled": true,
+    "backend": "network",
+    "host": "192.168.7.10",
+    "port": 9100,
+    "logo_path": "app/static/logo.png"
+  }
+}

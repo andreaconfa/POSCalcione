@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+{% block content %}
+
+
+<h2 style="margin-top:0;">Kitchen Display — {{ (kitchen and kitchen.name) or kitchen_name }} ({{ (kitchen and kitchen.prefix) or prefix }})</h2>
+
+<!-- Barra errori visibile -->
+<div id="kds-errors" style="display:none;margin-bottom:12px;">
+  <div style="background:#7f1d1d;color:#fff;padding:8px 10px;border-radius:8px;">
+    <strong>Errore KDS:</strong> <span id="kds-error-msg"></span>
+  </div>
+</div>
+
+<!-- Layout a due colonne: ordini (sx) + riepilogo (dx) -->
+<div class="kds-grid">
+  <!-- Colonna ordini (contenitore del frammento) -->
+  <div id="kds-wrap">
+    <div class="tag">Caricamento…</div>
+  </div>
+
+  <!-- Colonna riepilogo prodotti (statica nel layout) -->
+  <aside class="kds-summary" aria-label="Riepilogo prodotti">
+    <div class="kds-summary__header">
+      <h3>Riepilogo prodotti</h3>
+      <button id="kds-summary-refresh" type="button" title="Aggiorna">⟳</button>
+    </div>
+    <ul id="kds-summary-list" class="kds-summary__list">
+      <li class="kds-summary__item"><em>Caricamento…</em></li>
+    </ul>
+  </aside>
+</div>
+
+<style>
+  /* === Layout due colonne === */
+  .kds-grid{
+    display:grid;
+    grid-template-columns: 1fr 280px;
+    gap:12px;
+    align-items:start;
+    width:100%;
+  }
+  /* === Colonna riepilogo (statica) === */
+  .kds-summary{
+    background:#0e1420;
+    border:1px solid #20283a;
+    border-radius:12px;
+    padding:10px;
+    color:#e7eefc;
+    min-height:120px;
+    max-height:calc(100vh - 160px);
+    overflow:auto;
+  }
+  .kds-summary__header{
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;
+  }
+  .kds-summary__header h3{ margin:0; font-size:16px; }
+  .kds-summary__list{ list-style:none; padding:0; margin:0; }
+  .kds-summary__item{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:6px 8px; border-bottom:1px dashed #24314c; font-size:14px;
+  }
+  .kds-summary__qty{
+    min-width:2.8em; text-align:center; font-weight:800;
+    background:#13203a; border-radius:8px; padding:2px 6px;
+  }
+
+  /* Badge tempo di attesa (come prima) */
+  .kds-card .badge-age{
+    background: rgba(148,163,184,.14);
+    color: #e5e7eb;
+    border: 1px solid rgba(148,163,184,.30);
+  }
+  .kds-card .badge-age.ok{
+    background: rgba(34,197,94,.22);
+    color: #bbf7d0;
+    border-color: rgba(34,197,94,.50);
+  }
+  .kds-card .badge-age.warn{
+    background: rgba(245,158,11,.20);
+    color: #fde68a;
+    border-color: rgba(245,158,11,.45);
+  }
+  .kds-card .badge-age.danger{
+    background: rgba(239,68,68,.22);
+    color: #fecaca;
+    border-color: rgba(239,68,68,.50);
+  }
+</style>
+
+<!-- 🛡️ Pannello flottante a prova di overlay -->
+<style>
+  #kds-floating-summary{
+    position: fixed;
+    top: 84px;           /* regola se hai una topbar fissa */
+    right: 12px;
+    width: 280px;
+    max-height: calc(100vh - 96px);
+    overflow: auto;
+    z-index: 99999;      /* davanti a tutto */
+    background:#0e1420;
+    border:1px solid #20283a;
+    border-radius:12px;
+    padding:10px;
+    color:#e7eefc;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  #kds-floating-summary .kds-summary__header{
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;
+  }
+  #kds-floating-summary h3{ margin:0; font-size:16px; }
+  #kds-floating-summary .kds-summary__list{ list-style:none; padding:0; margin:0; }
+  #kds-floating-summary .kds-summary__item{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:6px 8px; border-bottom:1px dashed #24314c; font-size:14px;
+  }
+  #kds-floating-summary .kds-summary__qty{
+    min-width:2.8em; text-align:center; font-weight:800;
+    background:#13203a; border-radius:8px; padding:2px 6px;
+  }
+</style>
+
+<noscript>
+  <div class="card" style="border-left:4px solid #ef4444">Il KDS richiede JavaScript attivo.</div>
+</noscript>
+
+<script>
+(function(){
+  // ====== CONFIG / REFERENZE ======
+  const PREFIX = ("{{ (prefix or (kitchen and kitchen.prefix) or '') }}").toUpperCase();
+  const wrap   = document.getElementById("kds-wrap");
+  const errBox = document.getElementById("kds-errors");
+  const errMsg = document.getElementById("kds-error-msg");
+
+  function showError(msg){
+    if (!errBox) return;
+    errMsg.textContent = msg;
+    errBox.style.display = '';
+    console.error("[KDS][ERR]", msg);
+  }
+  function clearError(){
+    if (!errBox) return;
+    errBox.style.display = 'none';
+    errMsg.textContent = '';
+  }
+
+  // ====== Utils ======
+  function kdsAgeToSeconds(txt){
+    if(!txt) return 0;
+    txt = String(txt).toLowerCase().trim();
+    let total = 0;
+    const h = txt.match(/(\d+)\s*h/);
+    const m = txt.match(/(\d+)\s*m(in)?/);
+    const s = txt.match(/(\d+)\s*s/);
+    if(h) total += parseInt(h[1],10) * 3600;
+    if(m) total += parseInt(m[1],10) * 60;
+    if(s) total += parseInt(s[1],10);
+    if(total === 0){
+      const onlyNum = txt.match(/^(\d+)$/);
+      if(onlyNum) total = parseInt(onlyNum[1],10) * 60;
+    }
+    return total;
+  }
+  function kdsColorAgeBadges(root){
+    const scope = root || document;
+    scope.querySelectorAll('.kds-card .badge-age').forEach(b=>{
+      b.classList.remove('ok','warn','danger');
+      const txt = b.textContent || b.innerText || '';
+      const clean = txt.replace(/^.*?\s/, '');
+      const sec = kdsAgeToSeconds(clean);
+      if(sec > 15*60)      b.classList.add('danger');
+      else if(sec > 10*60) b.classList.add('warn');
+      else                 b.classList.add('ok');
+    });
+  }
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])) }
+
+  // ====== Pannello flottante (creazione se manca) ======
+  function ensureFloatingSummary(){
+    let box = document.getElementById('kds-floating-summary');
+    if (!box){
+      box = document.createElement('aside');
+      box.id = 'kds-floating-summary';
+      box.setAttribute('aria-label','Riepilogo prodotti (flottante)');
+      box.innerHTML = `
+        <div class="kds-summary__header">
+          <h3>Riepilogo prodotti</h3>
+          <button id="kds-summary-refresh-float" type="button" title="Aggiorna">⟳</button>
+        </div>
+        <ul id="kds-summary-list-float" class="kds-summary__list">
+          <li class="kds-summary__item"><em>Caricamento…</em></li>
+        </ul>
+      `;
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+
+  // ====== Riferimenti liste di riepilogo (statica + flottante) ======
+  ensureFloatingSummary();
+  function getSummaryTargets(){
+    const targets = [];
+    const a = document.getElementById('kds-summary-list');       // lista statica nel layout
+    const b = document.getElementById('kds-summary-list-float'); // lista nel pannello flottante
+    if (a) targets.push(a);
+    if (b && b !== a) targets.push(b);
+    return targets;
+  }
+  function getRefreshButtons(){
+    const btns = [];
+    const a = document.getElementById('kds-summary-refresh');
+    const b = document.getElementById('kds-summary-refresh-float');
+    if (a) btns.push(a);
+    if (b && b !== a) btns.push(b);
+    return btns;
+  }
+
+  // ====== CARICAMENTO FRAMMENTO ORDINI ======
+  async function loadFragment(){
+    if (!PREFIX || !wrap) return;
+    try{
+      const r = await fetch(`/kds/${PREFIX}/fragment?t=${Date.now()}`, { cache: "no-store" });
+      if (!r.ok){
+        const t = await r.text().catch(()=>r.statusText);
+        throw new Error(`GET /kds/${PREFIX}/fragment -> ${r.status} ${t}`);
+      }
+      const html = await r.text();
+      wrap.innerHTML = (html && html.trim()) ? html : `<div class="tag">Frammento vuoto</div>`;
+      kdsColorAgeBadges(wrap);
+      clearError();
+    }catch(e){
+      showError(e.message || String(e));
+      wrap.innerHTML = `<div class="tag">Errore caricamento frammento</div>`;
+    }
+  }
+
+  // ====== CARICAMENTO RIEPILOGO PRODOTTI ======
+  async function loadSummary(){
+    const targets = getSummaryTargets();
+    if (!PREFIX || targets.length === 0) return;
+    try{
+      const r = await fetch(`/kds/${PREFIX}/summary?t=${Date.now()}`, { cache: "no-store" });
+      if (!r.ok){
+        const t = await r.text().catch(()=>r.statusText);
+        throw new Error(`GET /kds/${PREFIX}/summary -> ${r.status} ${t}`);
+      }
+      const data = await r.json(); // [{name, total_qty}]
+      renderSummary(Array.isArray(data) ? data : []);
+    }catch(e){
+      showError(e.message || String(e));
+      targets.forEach(el => el.innerHTML = `<li class="kds-summary__item"><em>Errore riepilogo</em></li>`);
+    }
+  }
+
+  function renderSummary(items){
+    const targets = getSummaryTargets();
+    const html = (!items.length)
+      ? `<li class="kds-summary__item"><em>Nessun prodotto</em></li>`
+      : items.map(it => `
+          <li class="kds-summary__item">
+            <span class="kds-summary__name">${escapeHtml(it.name || '')}</span>
+            <span class="kds-summary__qty">${Number(it.total_qty||0)}</span>
+          </li>
+        `).join('');
+
+    targets.forEach(el => el.innerHTML = html);
+  }
+
+  // ====== AVVIO + POLLING ======
+  window.addEventListener("load", function(){
+    // alza lo z-index del wrap per sicurezza
+    if (wrap){ wrap.style.position = 'relative'; wrap.style.zIndex = '1'; }
+    const floatBox = document.getElementById('kds-floating-summary');
+    if (floatBox){ floatBox.style.position = 'fixed'; floatBox.style.zIndex = '99999'; }
+
+    loadFragment();   // ordini
+    loadSummary();    // riepilogo
+    setInterval(loadFragment, 10000);
+    setInterval(loadSummary, 2000);
+
+    // refresh manuale (su entrambi i bottoni se presenti)
+    getRefreshButtons().forEach(btn => btn.addEventListener('click', loadSummary));
+  });
+
+  // Aggiorna su poke (dopo i POST)
+  document.addEventListener("ws-poke", function(){
+    loadFragment();
+    loadSummary();
+  });
+
+  // ====== Delegato click per bottoni stato ======
+  document.addEventListener("click", async function(ev){
+    const btn = ev.target.closest("button[data-post][data-status], button[data-action][data-seq]");
+    if (!btn) return;
+
+    let url = btn.getAttribute("data-post");
+    if (!url){
+      const action = btn.getAttribute("data-action");
+      const seq    = btn.getAttribute("data-seq");
+      if (!action || !seq){
+        showError("Bottone senza data-post né (data-action,data-seq).");
+        return;
+      }
+      url = `/kds/${PREFIX}/${seq}/${action}`;
+    }
+
+    const prev = btn.textContent;
+    btn.disabled = true; btn.textContent = "…";
+    try{
+      const res = await fetch(url, { method: "POST" });
+      if (!res.ok){
+        const t = await res.text().catch(()=>res.statusText);
+        throw new Error(`POST ${url} -> ${res.status} ${t}`);
+      }
+      await loadFragment();
+      await loadSummary();
+      document.dispatchEvent(new Event("ws-poke"));
+      clearError();
+    }catch(e){
+      showError(e.message || String(e));
+    }finally{
+      btn.disabled = false; btn.textContent = prev;
+    }
+  });
+})();
+</script>
+
+{% endblock %}

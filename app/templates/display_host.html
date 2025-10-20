@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2 style="margin-top:0;">Display Clienti</h2>
+  <div id="ready-board" data-endpoint="/display/fragment">Caricamento...</div>
+</div>
+<script>
+(function(){
+  const targetId="ready-board";
+  function doRefresh(){
+    const el=document.getElementById(targetId);
+    if (el) window.refreshInto(el.dataset.endpoint, targetId);
+  }
+  window.addEventListener("load", function(){
+    doRefresh(); setInterval(doRefresh, 10000);
+    document.addEventListener("ws-poke", doRefresh);
+  });
+})();
+</script>
+{% endblock %}

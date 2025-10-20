@@ -1,0 +1,28 @@
+{# _kds_card.html #}
+
+<div class="kds-card status-{{ t.status }}" data-ticket-id="{{ t.id }}">
+  <div class="kds-header">
+    <div class="pickup">{{ (prefix or '')|upper }} {{ t.pickup_seq }}</div>
+    <div class="badge">{{ "In coda" if t.status=="queued" else ("In preparazione" if t.status=="prepping" else ("Pronto" if t.status=="ready" else "Consegnato")) }}</div>
+  </div>
+
+  <div class="muted">
+    <span data-age="{{ created.isoformat() if created else '' }}"></span>
+  </div>
+
+  <div class="kds-lines">
+    {% for name, qty in items %}
+      <div>• {{ qty }}× {{ name }}</div>
+    {% endfor %}
+  </div>
+
+  <div class="kds-actions">
+    {% if t.status == "queued" %}
+      <a class="kds-btn k-prep" data-action="preparing" href="#">Prepara</a>
+    {% elif t.status == "prepping" %}
+      <a class="kds-btn k-ready" data-action="ready" href="#">Pronto</a>
+    {% elif t.status == "ready" %}
+      <a class="kds-btn k-del" data-action="delivered" href="#">Consegnato</a>
+    {% endif %}
+  </div>
+</div>

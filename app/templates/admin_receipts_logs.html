@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Log Scontrini</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #0b0b0d; --fg: #f2f2f3; --muted: #b7b7c2; --card:#141419;
+      --accent:#6cf; --danger:#ff6b6b; --ok:#64d98a; --border:#2a2a35;
+    }
+    html,body {background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
+    a {color:var(--accent); text-decoration:none}
+    .wrap{max-width:1100px; margin:20px auto; padding:16px;}
+    h1{font-size:20px; margin:0 0 12px}
+    .card{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px}
+    .row{display:flex; gap:12px; flex-wrap:wrap}
+    .field{display:flex; flex-direction:column; gap:6px; min-width:160px}
+    input[type=text], select, input[type=number]{background:#0f0f14; color:var(--fg); border:1px solid var(--border); border-radius:8px; padding:8px}
+    .btn{background:#222637; color:#fff; border:1px solid #2e3350; border-radius:10px; padding:8px 12px; cursor:pointer}
+    .btn.primary{background:#3859ff; border-color:#3859ff}
+    .btn.danger{background:#7a1111; border-color:#a51e1e}
+    table{width:100%; border-collapse:collapse; margin-top:12px}
+    th,td{padding:10px; border-bottom:1px solid var(--border); vertical-align:top}
+    th{color:var(--muted); text-align:left; font-weight:600}
+    tr:hover{background:#161824}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space:pre-wrap}
+    .tag{display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid var(--border); color:var(--muted)}
+    .tag.ok{color:#7fffb2; border-color:#254a34}
+    .tag.err{color:#ff9ea0; border-color:#4a2525}
+    .pager{display:flex; gap:8px; justify-content:flex-end; margin-top:8px}
+    details summary{cursor:pointer; color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Log Scontrini</h1>
+
+    <div class="card">
+      <form method="get" action="/admin/receipts/logs" class="row">
+        <div class="field">
+          <label>Stato</label>
+          <select name="status">
+            <option value="" {% if not status %}selected{% endif %}>Tutti</option>
+            <option value="ok" {% if status=='ok' %}selected{% endif %}>OK</option>
+            <option value="error" {% if status=='error' %}selected{% endif %}>Errore</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Stampante</label>
+          <select name="printer_id">
+            <option value="" {% if not printer_id %}selected{% endif %}>Tutte</option>
+            {% for pr in printers %}
+              <option value="{{ pr.id }}" {% if printer_id==pr.id %}selected{% endif %}>{{ pr.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field" style="flex:1 1 280px">
+          <label>Ricerca (summary/body)</label>
+          <input type="text" name="q" value="{{ q }}">
+        </div>
+        <div class="field">
+          <label>Per pagina</label>
+          <input type="number" name="limit" value="{{ limit }}" min="10" max="200">
+        </div>
+        <div class="field" style="align-self:flex-end">
+          <button class="btn" type="submit">Filtra</button>
+          <a class="btn" href="/admin/receipts/logs">Reset</a>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Quando</th>
+            <th>Stampante</th>
+            <th>Ordine</th>
+            <th>Stato</th>
+            <th>Preview</th>
+            <th>Azione</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>#{{ r.id }}</td>
+            <td>{{ r.created_at.strftime('%d/%m/%Y %H:%M:%S') }}</td>
+            <td>
+              {% set p = (printers | selectattr('id','equalto', r.printer_id) | list | first) %}
+              {{ p.name if p else ('ID ' ~ r.printer_id) }}
+            </td>
+            <td>{% if r.order_id %}#{{ r.order_id }}{% else %}—{% endif %}</td>
+            <td>
+              {% if r.status == 'ok' %}
+                <span class="tag ok">OK</span>
+              {% else %}
+                <span class="tag err">ERRORE</span>
+                {% if r.error_text %}<details><summary>Dettagli</summary><div class="mono">{{ r.error_text }}</div></details>{% endif %}
+              {% endif %}
+            </td>
+            <td>
+              <details>
+                <summary>Mostra testo</summary>
+                <div class="mono">{{ r.body }}</div>
+              </details>
+            </td>
+            <td>
+              <form method="post" action="/admin/receipts/logs/reprint" style="display:inline">
+                <input type="hidden" name="log_id" value="{{ r.id }}">
+                <button class="btn primary" type="submit">Ristampa</button>
+              </form>
+              <form method="post" action="/admin/receipts/logs/delete" style="display:inline" onsubmit="return confirm('Eliminare il log #{{ r.id }}?')">
+                <input type="hidden" name="log_id" value="{{ r.id }}">
+                <button class="btn danger" type="submit">Elimina</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="pager">
+        {% set prevp = page-1 if page>1 else 1 %}
+        {% set nextp = page+1 if (page*limit) < total else page %}
+        <a class="btn" href="/admin/receipts/logs?page={{ prevp }}&limit={{ limit }}&status={{ status }}&printer_id={{ printer_id }}&q={{ q }}">« Precedente</a>
+        <span class="tag">Pagina {{ page }}</span>
+        <a class="btn" href="/admin/receipts/logs?page={{ nextp }}&limit={{ limit }}&status={{ status }}&printer_id={{ printer_id }}&q={{ q }}">Successiva »</a>
+      </div>
+    </div>
+
+    <div class="card" style="opacity:.8">
+      <div class="mono">Totali filtrati: {{ total }}</div>
+    </div>
+  </div>
+</body>
+</html>

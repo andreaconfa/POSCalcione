@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+  .kds-hub { max-width: 720px; margin: 24px auto; }
+  .card { background:#0e1420; border:1px solid #20283a; border-radius:12px; color:#e7eefc; padding:16px; }
+  .row { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+  .input { min-width: 220px; }
+  .btn { padding:10px 14px; border-radius:10px; border:1px solid #2a3550; background:#1b3a7a; color:#fff; }
+  .btn.secondary { background:#13305e; }
+  .muted { opacity:.8; font-size:12px; margin-top:6px; }
+</style>
+
+<h2 style="margin-top:0;">KDS — Seleziona postazione</h2>
+<div class="kds-hub">
+  <div class="card">
+    {% if kitchens and kitchens|length > 0 %}
+      <div class="row">
+        <div>
+          <label class="text-s">Postazione (Kitchen)</label><br>
+          <select id="prefix" class="input">
+            {% for k in kitchens %}
+              <option value="{{k.prefix}}">{{k.name}} ({{k.prefix}})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="text-s">Apri</label><br>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn" id="open-kds" type="button" title="Gestione ordini in cucina">
+              Apri KDS (gestione ordini)
+            </button>
+            <button class="btn secondary" id="open-client" type="button" title="Schermo clienti (split)">
+              Apri Schermo Clienti (split)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="links" class="muted" style="margin-top:6px;"></div>
+      <div class="muted">Per schermo intero usa F11 o la modalità kiosk del browser.</div>
+    {% else %}
+      Nessuna postazione trovata. Crea una postazione in <a href="/admin">/admin</a> → “Postazioni (KDS)”.
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  const sel = document.getElementById('prefix');
+  const openKDS = document.getElementById('open-kds');
+  const openClient = document.getElementById('open-client');
+  const links = document.getElementById('links');
+
+  function urls(pfx){
+    return {
+      kds:  `/display/${pfx}`,          // ⬅️ KDS gestione ordini (DI PRIMA)
+      clSplit: `/screen/${pfx}`,        // opzionale: schermo clienti split
+    };
+  }
+  function updateLinks(){
+    if (!sel || !links) return;
+    const u = urls(sel.value);
+    links.textContent = `KDS: ${u.kds} · Schermo clienti: ${u.clSplit}`;
+  }
+  function open(kind){
+    if(!sel) return;
+    const u = urls(sel.value)[kind];
+    window.open(u, '_blank', 'noopener,noreferrer');
+  }
+
+  if (openKDS)   openKDS.addEventListener('click', ()=> open('kds'));
+  if (openClient) openClient.addEventListener('click', ()=> open('clSplit'));
+  if (sel) sel.addEventListener('change', updateLinks);
+
+  updateLinks();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Media & Playlist — Screen {{screen}}</h1>
+
+<nav class="admin-subnav" style="margin: 10px 0 20px 0;">
+  <a href="/admin" class="btn">Dashboard</a>
+  <a href="/admin/orders" class="btn">Ordini</a>
+  <a href="/admin/media" class="btn btn-primary">Media & Playlist</a>
+</nav>
+
+<section class="card" style="padding:14px;">
+  <h3>Upload</h3>
+  <form action="/admin/media/upload" method="post" enctype="multipart/form-data" style="display:flex; gap:12px; align-items:end; flex-wrap:wrap;">
+    <div>
+      <label>File immagine/video<br><input type="file" name="file" required></label>
+    </div>
+    <div>
+      <label>Durata ms (per immagini / override)<br><input type="number" name="duration_ms" placeholder="5000" style="width:160px;"></label>
+    </div>
+    <div>
+      <label>Mute (video)<br><input type="checkbox" name="mute" checked></label>
+    </div>
+    <div>
+      <button type="submit">Carica</button>
+    </div>
+  </form>
+</section>
+
+<section class="grid-2" style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:16px;">
+  <div class="card" style="padding:14px; min-height:420px;">
+    <h3>Assets</h3>
+    <div id="assets" class="assets-grid" style="display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:10px;">
+      {% for a in assets %}
+      <div class="asset-tile" draggable="true"
+           data-media-id="{{a.id}}"
+           data-type="{{a.media_type}}"
+           data-url="{{a.url}}"
+           data-filename="{{a.filename}}"
+           data-default-duration="{{a.duration_ms or ''}}"
+           style="background:#121826; border:1px solid #20283a; border-radius:8px; padding:8px; text-align:center; cursor:grab;">
+        <div class="thumb" style="height:80px; display:flex; align-items:center; justify-content:center; overflow:hidden; background:#0b1018; border-radius:6px;">
+          {% if a.media_type == 'image' %}
+            <img src="{{a.url}}" style="max-width:100%; max-height:100%; object-fit:contain;">
+          {% else %}
+            <video src="{{a.url}}" muted style="max-width:100%; max-height:100%; object-fit:contain;"></video>
+          {% endif %}
+        </div>
+        <div title="{{a.filename}}" style="margin-top:6px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{a.filename}}</div>
+
+        <!-- BOTTONI: Aggiungi alla playlist + Elimina asset -->
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button class="add-btn" style="flex:1;">Aggiungi ➜</button>
+
+          <form action="/admin/media/delete" method="post"
+                onsubmit="return confirm('Eliminare definitivamente questo media?');"
+                style="margin:0;">
+            <input type="hidden" name="media_id" value="{{a.id}}">
+            <input type="hidden" name="screen" value="{{screen}}">
+            <button type="submit"
+              title="Elimina media"
+              style="background:#7a1b2a; color:#fff; border:1px solid #7a1b2a; border-radius:6px; padding:6px 8px;">
+              Elimina
+            </button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card" style="padding:14px; min-height:420px;">
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <h3>Playlist</h3>
+      <div>
+        <button id="clear-playlist" class="danger" title="Svuota playlist">Svuota</button>
+        <button id="save-playlist" class="primary">Salva</button>
+      </div>
+    </div>
+    <div id="playlist" class="playlist-list" style="min-height:320px; padding:10px; border:1px dashed #2a3550; border-radius:8px; background:#0b1018;">
+      {% for it in vm_items %}
+      <div class="pl-item" draggable="true"
+           data-media-id="{{it.media_id}}"
+           data-url="{{it.url}}"
+           data-type="{{it.media_type}}"
+           data-filename="{{it.filename}}"
+           style="display:flex; align-items:center; gap:10px; background:#121826; border:1px solid #20283a; border-radius:8px; padding:8px; margin-bottom:8px; cursor:grab;">
+        <div class="handle" title="Trascina" style="font-size:18px; user-select:none;">☰</div>
+        <div class="thumb" style="width:96px; height:54px; display:flex; align-items:center; justify-content:center; overflow:hidden; background:#0b1018; border-radius:6px;">
+          {% if it.media_type == 'image' %}
+            <img src="{{it.url}}" style="max-width:100%; max-height:100%; object-fit:contain;">
+          {% else %}
+            <video src="{{it.url}}" muted style="max-width:100%; max-height:100%; object-fit:contain;"></video>
+          {% endif %}
+        </div>
+        <div style="flex:1; min-width:160px;">
+          <div style="font-size:12px; color:#9fb1d3;">{{it.filename}}</div>
+          <div style="display:flex; gap:10px; align-items:center; margin-top:4px;">
+            <label style="font-size:12px;">Override (ms):
+              <input type="number" class="override" value="{{it.override_duration_ms or ''}}" placeholder="{{it.default_duration_ms or ''}}" style="width:120px;">
+            </label>
+            <span style="font-size:12px; opacity:.8;">Default: {{it.default_duration_ms or 'auto'}}</span>
+          </div>
+        </div>
+        <button class="del-btn" title="Rimuovi">✕</button>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- submit classico: riuso /admin/playlist/set -->
+    <form id="save-form" action="/admin/playlist/set" method="post" style="display:none;">
+      <input type="hidden" name="screen" value="{{screen}}">
+      <input type="hidden" name="items_spec" id="items_spec">
+    </form>
+  </div>
+</section>
+
+<style>
+  .btn { padding:6px 10px; border:1px solid #2a3550; border-radius:8px; text-decoration:none; color:inherit; }
+  .btn-primary { background:#1b3a7a; color:#fff; border-color:#1b3a7a; }
+  .card { background:#0e1420; border:1px solid #20283a; border-radius:12px; color:#e7eefc; }
+  .danger { background:#7a1b2a; color:#fff; border:1px solid #7a1b2a; border-radius:8px; padding:6px 10px; }
+  .primary { background:#1b3a7a; color:#fff; border:1px solid #1b3a7a; border-radius:8px; padding:6px 10px; }
+  .pl-item.drag-enter { outline: 2px dashed #4b6bd6; }
+  #playlist.drag-over { background:#0d1320; border-color:#4b6bd6; }
+</style>
+
+<script>
+(function(){
+  const assets = document.getElementById('assets');
+  const playlist = document.getElementById('playlist');
+  const saveBtn = document.getElementById('save-playlist');
+  const clearBtn = document.getElementById('clear-playlist');
+  const form = document.getElementById('save-form');
+  const itemsSpec = document.getElementById('items_spec');
+
+  function makePlItem(fromTile){
+    const wrap = document.createElement('div');
+    wrap.className = 'pl-item';
+    wrap.draggable = true;
+    wrap.style.cssText = "display:flex; align-items:center; gap:10px; background:#121826; border:1px solid #20283a; border-radius:8px; padding:8px; margin-bottom:8px; cursor:grab;";
+    wrap.dataset.mediaId = fromTile.dataset.mediaId;
+    wrap.dataset.type = fromTile.dataset.type;
+    wrap.dataset.url = fromTile.dataset.url;
+    wrap.dataset.filename = fromTile.dataset.filename;
+
+    wrap.innerHTML = `
+      <div class="handle" title="Trascina" style="font-size:18px; user-select:none;">☰</div>
+      <div class="thumb" style="width:96px; height:54px; display:flex; align-items:center; justify-content:center; overflow:hidden; background:#0b1018; border-radius:6px;">
+        ${fromTile.dataset.type === 'image'
+          ? `<img src="${fromTile.dataset.url}" style="max-width:100%; max-height:100%; object-fit:contain;">`
+          : `<video src="${fromTile.dataset.url}" muted style="max-width:100%; max-height:100%; object-fit:contain;"></video>`}
+      </div>
+      <div style="flex:1; min-width:160px;">
+        <div style="font-size:12px; color:#9fb1d3;" title="${fromTile.dataset.filename}">${fromTile.dataset.filename}</div>
+        <div style="display:flex; gap:10px; align-items:center; margin-top:4px;">
+          <label style="font-size:12px;">Override (ms):
+            <input type="number" class="override" placeholder="${fromTile.dataset.defaultDuration || ''}" style="width:120px;">
+          </label>
+          <span style="font-size:12px; opacity:.8;">Default: ${fromTile.dataset.defaultDuration || 'auto'}</span>
+        </div>
+      </div>
+      <button class="del-btn" title="Rimuovi">✕</button>
+    `;
+    return wrap;
+  }
+
+  // Aggiungi asset alla playlist
+  assets.addEventListener('click', (e)=>{
+    if(e.target.classList.contains('add-btn')){
+      const tile = e.target.closest('.asset-tile');
+      const node = makePlItem(tile);
+      playlist.appendChild(node);
+    }
+  });
+
+  // Rimuovi item dalla playlist
+  playlist.addEventListener('click', (e)=>{
+    if(e.target.classList.contains('del-btn')){
+      e.target.closest('.pl-item').remove();
+    }
+  });
+
+  // Drag & drop reorder
+  let dragEl = null;
+  playlist.addEventListener('dragstart', (e)=>{
+    const item = e.target.closest('.pl-item');
+    if(!item) return;
+    dragEl = item;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+    item.classList.add('dragging');
+  });
+  playlist.addEventListener('dragover', (e)=>{
+    if(!dragEl) return;
+    e.preventDefault();
+    const after = getDragAfterElement(playlist, e.clientY);
+    if(after == null){
+      playlist.appendChild(dragEl);
+    }else{
+      playlist.insertBefore(dragEl, after);
+    }
+    playlist.classList.add('drag-over');
+  });
+  playlist.addEventListener('dragleave', (e)=>{
+    if(e.currentTarget === playlist) playlist.classList.remove('drag-over');
+  });
+  playlist.addEventListener('drop', (e)=>{
+    e.preventDefault();
+    if(dragEl){ dragEl.classList.remove('dragging'); }
+    dragEl = null;
+    playlist.classList.remove('drag-over');
+  });
+  playlist.addEventListener('dragend', (e)=>{
+    const it = e.target.closest('.pl-item'); if(it) it.classList.remove('dragging');
+  });
+
+  function getDragAfterElement(container, y){
+    const els = [...container.querySelectorAll('.pl-item:not(.dragging)')];
+    return els.reduce((closest, child)=>{
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if(offset < 0 && offset > closest.offset){
+        return { offset, element: child };
+      } else {
+        return closest;
+      }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+
+  // Salva -> costruisce items_spec e invia il form /admin/playlist/set
+  document.getElementById('save-playlist').addEventListener('click', ()=>{
+    const spec = buildSpec();
+    itemsSpec.value = spec;
+    form.submit();
+  });
+
+  document.getElementById('clear-playlist').addEventListener('click', ()=>{
+    playlist.innerHTML = '';
+  });
+
+  function buildSpec(){
+    const items = [...playlist.querySelectorAll('.pl-item')];
+    return items.map((el, idx)=>{
+      const mid = el.dataset.mediaId;
+      const ov = (el.querySelector('.override')?.value || '').trim();
+      return `${mid}:${idx}:${ov}`;
+    }).join(';');
+  }
+})();
+</script>
+{% endblock %}

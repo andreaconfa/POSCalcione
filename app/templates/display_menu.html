@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 style="margin-top:0;">Seleziona display</h2>
+
+<style>
+  .display-card {
+    display:flex; flex-direction:column; gap:10px; padding:14px;
+  }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; }
+  .btn { padding:8px 10px; border:1px solid var(--border, #2a3550); border-radius:8px; text-decoration:none; }
+  .btn.primary { background:#1b3a7a; border-color:#1b3a7a; color:#fff; }
+</style>
+
+<div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:12px;">
+
+  <!-- Tutte le postazioni -->
+  <div class="card display-card">
+    <div style="font-size:22px; font-weight:800; margin-bottom:6px;">Tutte le postazioni</div>
+    <div class="text-s" style="opacity:.8;">Vista unica con tutti i numeri pronti</div>
+    <div class="actions">
+      <a class="btn primary" href="/screen" target="_blank" rel="noopener">Apri solo numeri</a>
+      <!-- Se implementi anche lo split “all”, abilita questo:
+      <a class="btn" href="/screen_split/all" target="_blank" rel="noopener">Apri split (tutte)</a>
+      -->
+    </div>
+  </div>
+
+  {% for k in kitchens %}
+  <div class="card display-card">
+    <div style="font-size:22px; font-weight:800; margin-bottom:6px;">
+      {{ k.name }} ({{ k.prefix }})
+    </div>
+    <div class="text-s" style="opacity:.8;">Scegli la modalità di visualizzazione</div>
+    <div class="actions">
+      <a class="btn primary" href="/screen_full/{{ k.prefix }}" target="_blank" rel="noopener">Apri solo numeri</a>
+      <a class="btn" href="/screen/{{ k.prefix }}" target="_blank" rel="noopener">Apri split (playlist)</a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

@@ -1,0 +1,71 @@
+{# app/templates/admin_prompts.html #}
+{% extends "base.html" %}
+{% block content %}
+<h2 style="margin:0 0 12px 0;">Customizzazioni — {{ product.name }}</h2>
+
+<form method="post" action="/admin/product/{{ product.id }}/prompts/save" class="card" style="padding:12px;">
+  <div id="rows" class="stack" style="gap:10px;">
+    {% for pr in prompts %}
+    <div class="card" style="padding:8px;">
+      <div class="grid" style="grid-template-columns: 2fr 1fr 1fr 2fr 1fr; gap:8px; align-items:end;">
+        <div>
+          <label class="text-s">Nome</label>
+          <input class="input" name="name" value="{{ pr.name }}">
+        </div>
+        <div>
+          <label class="text-s">Tipo</label>
+          <select class="input" name="kind">
+            <option value="boolean" {{ 'selected' if pr.kind=='boolean' else '' }}>Sì/No</option>
+            <option value="single"  {{ 'selected' if pr.kind=='single' else '' }}>Una scelta</option>
+            <option value="multi"   {{ 'selected' if pr.kind=='multi' else '' }}>Più scelte</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-s">Obbligatorio</label>
+          <input type="checkbox" name="required" {{ 'checked' if pr.required else '' }}>
+        </div>
+        <div>
+          <label class="text-s">Possibili scelte (virgole)</label>
+          <input class="input" name="choices" value="{{ (pr.choices|join(', ')) if pr.choices else '' }}">
+        </div>
+        <div>
+          <label class="text-s">Δ prezzo (centesimi)</label>
+          <input class="input" name="delta_cents" value="{{ pr.delta_cents or 0 }}">
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div style="display:flex; gap:8px; margin-top:10px;">
+    <button class="btn" type="button" id="add-row">+ Aggiungi riga</button>
+    <button class="btn is-primary" type="submit">Salva</button>
+    <a class="btn" href="/admin">Torna</a>
+  </div>
+</form>
+
+<script>
+document.getElementById('add-row').onclick = function(){
+  const host = document.getElementById('rows');
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.style.padding = '8px';
+  div.innerHTML = `
+    <div class="grid" style="grid-template-columns: 2fr 1fr 1fr 2fr 1fr; gap:8px; align-items:end;">
+      <div><label class="text-s">Nome</label><input class="input" name="name" placeholder="es. Salse"></div>
+      <div>
+        <label class="text-s">Tipo</label>
+        <select class="input" name="kind">
+          <option value="boolean">Sì/No</option>
+          <option value="single" selected>Una scelta</option>
+          <option value="multi">Più scelte</option>
+        </select>
+      </div>
+      <div><label class="text-s">Obbligatorio</label><input type="checkbox" name="required"></div>
+      <div><label class="text-s">Possibili scelte (virgole)</label><input class="input" name="choices" placeholder="Maionese, Ketchup, BBQ"></div>
+      <div><label class="text-s">Δ prezzo (centesimi)</label><input class="input" name="delta_cents" value="0"></div>
+    </div>`;
+  host.appendChild(div);
+};
+</script>
+{% endblock %}

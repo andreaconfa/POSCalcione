@@ -1,0 +1,571 @@
+
+{% extends "base.html" %}
+{% block content %}
+<style>
+  :root{
+    --bg-body:#0b0b0c; --bg-card:#121214; --text:#f2f3f5; --text-dim:#c4c7cf; --muted:#8b90a0; --border:#2a2b31;
+    --btn-default-bg:#1f1f22; --btn-default-fg:#e6e8ee; --btn-default-br:#3a3b42;
+    --btn-primary-bg:#2563eb; --btn-primary-fg:#ffffff; --btn-primary-br:#1e4fcc;
+    --btn-danger-bg:#ef4444; --btn-danger-fg:#ffffff; --btn-danger-br:#c93333;
+    --btn-link-fg:#93c5fd;
+    --input-bg:#1a1b1f; --input-fg:#e6e8ee; --input-ph:#9aa0ae; --input-br:#2e3036; --input-focus:#3b82f6;
+    --pill-bg:#1e293b; --pill-fg:#c7d2fe; --tag-bg:#2b2d34; --tag-fg:#d8dae2; --ghost:#0006;
+  }
+  html,body{background:var(--bg-body); color:var(--text);}
+  h1,h2,h3,h4,h5,h6,label,p,li,span,div,a,button,small,strong{color:var(--text);}
+  a{color:var(--btn-link-fg);}
+  .muted,.colsmall{color:var(--muted);}
+  .grid3{display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:24px;}
+  @media(max-width:1200px){.grid3{grid-template-columns:1fr;}}
+  .card{background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:16px;}
+  .card h3{margin:0 0 12px; font-size:20px;}
+  .btn{display:inline-block; padding:8px 12px; border-radius:8px; border:1px solid var(--btn-default-br); background:var(--btn-default-bg); color:var(--btn-default-fg); cursor:pointer;}
+  .btn.primary{background:var(--btn-primary-bg); border-color:var(--btn-primary-br); color:var(--btn-primary-fg);}
+  .btn.danger{background:var(--btn-danger-bg); border-color:var(--btn-danger-br); color:var(--btn-danger-fg);}
+  .btn.link{background:transparent; border:none; color:var(--btn-link-fg); padding:0;}
+  .btn:disabled{opacity:.6; cursor:not-allowed;}
+  .row{display:flex; gap:10px; align-items:center;}
+  .row>*{flex:1;}
+  .field{margin-bottom:10px;}
+  .field label{display:block; font-weight:600; margin-bottom:6px;}
+  .field input[type="text"], .field input[type="number"], .field select, .field textarea{
+    width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--input-br); background:var(--input-bg); color:var(--input-fg);
+  }
+  .field input::placeholder, .field textarea::placeholder{color:var(--input-ph);}
+  .field input:focus, .field select:focus, .field textarea:focus{outline:2px solid var(--input-focus); outline-offset:1px;}
+  .list{list-style:none; padding:0; margin:0;}
+  .rule{border:1px solid var(--border); border-radius:10px; padding:10px; margin-bottom:8px; background:#141418;}
+  .rule-head{display:flex; justify-content:space-between; gap:8px; align-items:center;}
+  .drag-handle{cursor:grab; user-select:none; margin-right:6px;}
+  .pill{display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:var(--pill-bg); color:var(--pill-fg);}
+  .tag{display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:var(--tag-bg); color:var(--tag-fg);}
+  .mutebg{background:#17181d; padding:10px; border-radius:8px; border:1px dashed var(--border);}
+  .hr{height:1px; background:var(--border); margin:12px 0; border:0;}
+  .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,"Liberation Mono","Courier New",monospace; background:#0e0f13; color:#e9eaf0; padding:2px 6px; border-radius:6px; font-size:12px; border:1px solid var(--border);}
+  details.edit{margin-top:8px;}
+  details.edit>summary{cursor:pointer; color:var(--btn-link-fg);}
+  .ghost{opacity:.7; box-shadow:0 0 0 9999px var(--ghost) inset;}
+</style>
+
+<h2 style="margin:0 0 16px;">Configurazione Ricevute</h2>
+<p class="muted" style="margin:0 0 24px;">
+  Definisci <strong>regole</strong> (KDS o gruppi di prodotti), <strong>template</strong> e <strong>stampanti</strong>. Ora puoi <strong>modificare</strong> ogni elemento inline.
+</p>
+
+<div class="grid3">
+  <!-- COL 1: REGOLE -->
+  <section class="card">
+    <h3>Regole</h3>
+    <p class="muted">Trascina per riordinare e premi <em>Salva ordine</em>. Le regole in alto hanno priorità maggiore.</p>
+
+    <form method="post" action="/admin/receipts/rule/reorder" id="reorder-form">
+      <ul id="rules-list" class="list">
+        {% for r in rules %}
+        <li class="rule" data-id="{{ r.id }}">
+          <div class="rule-head">
+            <div style="display:flex; align-items:center;">
+              <span class="drag-handle" title="Trascina">☰</span>
+              <div>
+                <div><strong>{{ r.name }}</strong></div>
+                <div class="colsmall">
+                  Tipo: <span class="pill">{{ 'KDS' if r.mode == 'kds' else 'Set prodotti' }}</span>
+                  {% if r.kitchen_id %} • Kitchen ID: {{ r.kitchen_id }}{% endif %}
+                  • Template ID: {{ r.template_id }} • Printer ID: {{ r.printer_id }}
+                </div>
+                <div class="colsmall">
+                  Priority: {{ r.priority }} • Copies: {{ r.copies }} •
+                  {% if r.consume_lines %}<span class="tag">Consuma linee</span>{% else %}<span class="tag">Non consuma</span>{% endif %}
+                  • {% if r.enabled %}<span class="tag">Abilitata</span>{% else %}<span class="tag">Disabilitata</span>{% endif %}
+                </div>
+              </div>
+            </div>
+            <form method="post" action="/admin/receipts/rule/delete" onsubmit="return confirm('Eliminare la regola «{{ r.name }}»?');">
+              <input type="hidden" name="rule_id" value="{{ r.id }}">
+              <button class="btn danger" type="submit">Elimina</button>
+            </form>
+          </div>
+
+          <!-- EDIT INLINE -->
+          <details class="edit">
+            <summary>Modifica</summary>
+            <form method="post" action="/admin/receipts/rule/update" onsubmit="return beforeSubmitProductsEdit({{ r.id }})">
+              <input type="hidden" name="rule_id" value="{{ r.id }}">
+
+              <div class="field">
+                <label>Nome</label>
+                <input type="text" name="name" value="{{ r.name }}" required>
+              </div>
+
+              <div class="row">
+                <div class="field">
+                  <label>Tipo</label>
+                  <select name="mode" id="mode-{{ r.id }}" onchange="toggleModeEdit({{ r.id }})">
+                    <option value="kds" {% if r.mode == 'kds' %}selected{% endif %}>Per KDS</option>
+                    <option value="product_set" {% if r.mode == 'product_set' %}selected{% endif %}>Per set prodotti</option>
+                  </select>
+                </div>
+                <div class="field" id="kitchen-field-{{ r.id }}">
+                  <label>Kitchen</label>
+                  <select name="kitchen_id">
+                    <option value="">--</option>
+                    {% for k in kitchens %}
+                    <option value="{{ k.id }}" {% if r.kitchen_id == k.id %}selected{% endif %}>{{ k.name }} ({{ k.prefix }})</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+
+              <div id="products-block-{{ r.id }}" style="display:none;">
+                <div class="field">
+                  <label>Filtra prodotti</label>
+                  <input type="text" id="prod-filter-{{ r.id }}" placeholder="Cerca per nome…" oninput="filterProducts({{ r.id }})">
+                </div>
+                <div class="mutebg" style="max-height:240px; overflow:auto;">
+                  <ul id="prod-list-{{ r.id }}" class="list">
+                    {% set sel = rule_products.get(r.id, []) %}
+                    {% for p in products %}
+                    <li>
+                      <label style="display:flex; gap:8px; align-items:center;">
+                        <input type="checkbox" value="{{ p.id }}" class="prod-check-{{ r.id }}" {% if p.id in sel %}checked{% endif %}>
+                        <span>{{ p.name }}</span>
+                      </label>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                <input type="hidden" name="product_ids" id="product-ids-{{ r.id }}" value="">
+                <div class="muted">Seleziona prodotti per questa regola.</div>
+              </div>
+
+              <div class="row">
+                <div class="field">
+                  <label>Stampante</label>
+                  <select name="printer_id">
+                    {% for p in printers %}
+                    <option value="{{ p.id }}" {% if r.printer_id == p.id %}selected{% endif %}>{{ p.name }} ({{ p.host }}:{{ p.port }})</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Template</label>
+                  <select name="template_id">
+                    {% for t in templates %}
+                    <option value="{{ t.id }}" {% if r.template_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="field">
+                  <label>Copies</label>
+                  <input type="number" name="copies" value="{{ r.copies }}" min="1">
+                </div>
+                <div class="field">
+                  <label>Priority</label>
+                  <input type="number" name="priority" value="{{ r.priority }}">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="field">
+                  <label style="display:flex; gap:8px; align-items:center;">
+                    <input type="checkbox" name="consume_lines" {% if r.consume_lines %}checked{% endif %}> Consuma linee
+                  </label>
+                </div>
+                <div class="field">
+                  <label style="display:flex; gap:8px; align-items:center;">
+                    <input type="checkbox" name="enabled" {% if r.enabled %}checked{% endif %}> Abilitata
+                  </label>
+                </div>
+              </div>
+
+              <div class="row" style="margin-top:6px;">
+                <button class="btn" type="reset">Reset</button>
+                <button class="btn primary" type="submit">Salva modifiche</button>
+              </div>
+            </form>
+          </details>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <input type="hidden" id="order-input" name="order" value="">
+      <div class="row" style="margin-top:12px;">
+        <button class="btn" type="button" onclick="resetOrder()">Ripristina lista</button>
+        <button class="btn primary" type="submit">Salva ordine</button>
+      </div>
+    </form>
+
+    <div class="hr"></div>
+
+    <!-- Nuova regola -->
+    <h3 style="margin-top:8px;">Nuova regola</h3>
+    <form method="post" action="/admin/receipts/rule/create" onsubmit="return beforeSubmitProductsCreate()">
+      <div class="field">
+        <label>Nome</label>
+        <input type="text" name="name" required placeholder="Es. KDS — Casetta, Immediato — Dolci">
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Tipo</label>
+          <select name="mode" id="mode-create" onchange="toggleModeCreate()">
+            <option value="kds">Per KDS</option>
+            <option value="product_set">Per set prodotti</option>
+          </select>
+        </div>
+        <div class="field" id="kitchen-field-create">
+          <label>Kitchen</label>
+          <select name="kitchen_id">
+            <option value="">--</option>
+            {% for k in kitchens %}<option value="{{ k.id }}">{{ k.name }} ({{ k.prefix }})</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div id="products-block-create" style="display:none;">
+        <div class="field">
+          <label>Filtra prodotti</label>
+          <input type="text" id="prod-filter-create" placeholder="Cerca per nome…" oninput="filterProductsCreate()">
+        </div>
+        <div class="mutebg" style="max-height:240px; overflow:auto;">
+          <ul id="prod-list-create" class="list">
+            {% for p in products %}
+            <li>
+              <label style="display:flex; gap:8px; align-items:center;">
+                <input type="checkbox" value="{{ p.id }}" class="prod-check-create">
+                <span>{{ p.name }}</span>
+              </label>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        <input type="hidden" name="product_ids" id="product-ids-create" value="">
+        <div class="muted">Seleziona prodotti per questa regola.</div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Stampante</label>
+          <select name="printer_id">
+            {% for p in printers %}<option value="{{ p.id }}">{{ p.name }} ({{ p.host }}:{{ p.port }})</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>Template</label>
+          <select name="template_id">
+            {% for t in templates %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Copies</label>
+          <input type="number" name="copies" value="1" min="1">
+        </div>
+        <div class="field">
+          <label>Priority</label>
+          <input type="number" name="priority" value="100">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label style="display:flex; gap:8px; align-items:center;"><input type="checkbox" name="consume_lines" checked> Consuma linee</label>
+        </div>
+        <div class="field">
+          <label style="display:flex; gap:8px; align-items:center;"><input type="checkbox" name="enabled" checked> Abilitata</label>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:6px;">
+        <button class="btn" type="reset">Reset</button>
+        <button class="btn primary" type="submit">Crea regola</button>
+      </div>
+    </form>
+
+    <div class="hr"></div>
+
+    <h3>Anteprima</h3>
+    <p class="muted">Esegue le <strong>regole abilitate</strong> su un ordine (stampa reale!).</p>
+    <form method="post" action="/admin/receipts/preview">
+      <div class="row">
+        <div class="field">
+          <label>Order ID</label>
+          <input type="number" name="order_id" required placeholder="es. 123">
+        </div>
+        <div class="field">
+          <label>Rule ID (opzionale)</label>
+          <input type="number" name="rule_id" placeholder="Lascia vuoto per tutte">
+        </div>
+      </div>
+      <button class="btn primary" type="submit">Esegui anteprima</button>
+    </form>
+  </section>
+
+  <!-- COL 2: TEMPLATE -->
+  <section class="card">
+    <h3>Template</h3>
+    <p class="muted">Variabili: <span class="kbd">now</span>, <span class="kbd">event_name</span>, <span class="kbd">order</span>, <span class="kbd">kitchen</span>, <span class="kbd">lines</span>, <span class="kbd">rule</span>.</p>
+
+    <!-- Esistenti (EDIT) -->
+    {% for t in templates %}
+    <details class="edit">
+      <summary>Modifica: {{ t.name }}</summary>
+      <form method="post" action="/admin/receipts/template/update">
+        <input type="hidden" name="tpl_id" value="{{ t.id }}">
+        <div class="field">
+          <label>Nome</label>
+          <input type="text" name="name" value="{{ t.name }}" required>
+        </div>
+        <div class="field">
+          <label>Body (Jinja)</label>
+          <textarea name="body" rows="10" style="width:100%">{{ t.body }}</textarea>
+        </div>
+        <label style="display:flex; gap:8px; align-items:center;">
+          <input type="checkbox" name="cut" {% if t.cut %}checked{% endif %}> Taglio carta
+        </label>
+        <div class="row" style="margin-top:8px;">
+          <button class="btn" type="reset">Reset</button>
+          <button class="btn primary" type="submit">Salva template</button>
+        </div>
+      </form>
+      <form method="post" action="/admin/receipts/template/delete" onsubmit="return confirm('Eliminare il template «{{ t.name }}»?');" style="margin-top:8px;">
+        <input type="hidden" name="tpl_id" value="{{ t.id }}">
+        <button class="btn danger" type="submit">Elimina template</button>
+      </form>
+    </details>
+    <div class="hr"></div>
+    {% endfor %}
+
+    <!-- Nuovo -->
+    <h3>Nuovo template</h3>
+    <form method="post" action="/admin/receipts/template/create">
+      <div class="field">
+        <label>Nome</label>
+        <input type="text" name="name" required placeholder="Es. KDS GIGANTE">
+      </div>
+      <div class="field">
+        <label>Body (Jinja)</label>
+        <textarea name="body" rows="12" style="width:100%;" placeholder="Scrivi qui il template Jinja"></textarea>
+      </div>
+      <label style="display:flex; gap:8px; align-items:center;"><input type="checkbox" name="cut" checked> Taglio carta</label>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn" type="reset">Reset</button>
+        <button class="btn primary" type="submit">Crea template</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- COL 3: STAMPANTI -->
+  <section class="card">
+    <h3>Stampanti</h3>
+    <p class="muted">Stampanti ESC/POS in rete (porta tipica 9100).</p>
+
+    <!-- Esistenti (EDIT) -->
+    {% for p in printers %}
+    <details class="edit">
+      <summary>Modifica: {{ p.name }}</summary>
+<form method="post" action="/admin/receipts/printer/update">
+  <input type="hidden" name="printer_id" value="{{ p.id }}">
+  <div class="field">
+    <label>Nome</label>
+    <input type="text" name="name" value="{{ p.name }}" required>
+  </div>
+  <div class="row">
+    <div class="field">
+      <label>Host</label>
+      <input type="text" name="host" value="{{ p.host }}" required>
+    </div>
+    <div class="field">
+      <label>Port</label>
+      <input type="number" name="port" value="{{ p.port }}" min="1">
+    </div>
+  </div>
+  <div class="row">
+    <div class="field">
+      <label>Width chars</label>
+      <input type="number" name="width_chars" value="{{ p.width_chars }}" min="24" max="48">
+    </div>
+    <div class="field">
+      <label style="display:flex; gap:8px; align-items:center;"><input type="checkbox" name="enabled" {% if p.enabled %}checked{% endif %}> Abilitata</label>
+    </div>
+  </div>
+
+  <!-- LOGO: preview + select esistente + rimuovi -->
+  <div class="hr"></div>
+  <div class="field">
+    <label>Logo</label>
+    {% if p.logo_path %}
+      {% set basename = p.logo_path.split('/')[-1] %}
+      <div class="row" style="align-items:flex-start;">
+        <div style="flex:0 0 auto;">
+          <img src="/uploads/logos/{{ basename }}" alt="logo" style="max-width:160px; max-height:120px; border:1px solid var(--border); border-radius:6px; background:#fff;">
+          <div class="colsmall" style="margin-top:6px;">{{ basename }}</div>
+        </div>
+        <div class="muted" style="flex:1;">Logo attuale.</div>
+      </div>
+    {% else %}
+      <div class="muted">Nessun logo assegnato.</div>
+    {% endif %}
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label>Seleziona logo esistente</label>
+      <select name="selected_logo">
+        <option value="">—</option>
+        {% for f in logo_files %}
+          {% set current = p.logo_path and f == p.logo_path.split('/')[-1] %}
+          <option value="{{ f }}" {% if current %}selected{% endif %}>{{ f }}</option>
+        {% endfor %}
+      </select>
+      <div class="colsmall">Scegli tra i file già caricati.</div>
+    </div>
+    <div class="field" style="align-self:flex-end;">
+      <label style="display:flex; gap:8px; align-items:center;">
+        <input type="checkbox" name="remove_logo"> Rimuovi logo
+      </label>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:8px;">
+    <button class="btn" type="reset">Reset</button>
+    <button class="btn primary" type="submit">Salva stampante</button>
+  </div>
+</form>
+
+<!-- Upload file (form separato, multipart) -->
+<form method="post" action="/admin/receipts/printer/upload_logo" enctype="multipart/form-data" style="margin-top:10px;">
+  <input type="hidden" name="printer_id" value="{{ p.id }}">
+  <div class="row">
+    <div class="field">
+      <label>Carica nuovo logo (PNG/JPG)</label>
+      <input type="file" name="file" accept=".png,.jpg,.jpeg,.gif,.bmp">
+      <div class="colsmall">Verrà salvato in <code>/uploads/logos/</code> e assegnato a questa stampante.</div>
+    </div>
+    <div class="field" style="align-self:flex-end;">
+      <button class="btn" type="submit">Carica &amp; assegna</button>
+    </div>
+  </div>
+</form>
+      <form method="post" action="/admin/receipts/printer/delete" onsubmit="return confirm('Eliminare la stampante «{{ p.name }}»?');" style="margin-top:8px;">
+        <input type="hidden" name="printer_id" value="{{ p.id }}">
+        <button class="btn danger" type="submit">Elimina stampante</button>
+      </form>
+    </details>
+    <div class="hr"></div>
+    {% endfor %}
+
+    <!-- Nuova -->
+    <h3>Nuova stampante</h3>
+    <form method="post" action="/admin/receipts/printer/create">
+      <div class="field">
+        <label>Nome</label>
+        <input type="text" name="name" required placeholder="Es. KDS Casetta">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Host</label>
+          <input type="text" name="host" required placeholder="192.168.x.x">
+        </div>
+        <div class="field">
+          <label>Port</label>
+          <input type="number" name="port" value="9100" min="1">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Width chars</label>
+          <input type="number" name="width_chars" value="32" min="24" max="48">
+        </div>
+        <div class="field">
+          <label style="display:flex; gap:8px; align-items:center;"><input type="checkbox" name="enabled" checked> Abilitata</label>
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn" type="reset">Reset</button>
+        <button class="btn primary" type="submit">Aggiungi stampante</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<script>
+  // -------- Drag & drop reorder
+  const list = document.getElementById('rules-list');
+  const orderInput = document.getElementById('order-input');
+  function refreshOrderInput(){
+    orderInput.value = Array.from(list.children).map(li => li.dataset.id).join(',');
+  }
+  function resetOrder(){ location.reload(); }
+  if (list){
+    Array.from(list.children).forEach(li => {
+      li.draggable = true;
+      li.addEventListener('dragstart', () => { li.classList.add('ghost'); });
+      li.addEventListener('dragend', () => { li.classList.remove('ghost'); });
+      li.addEventListener('dragover', (e) => { e.preventDefault(); });
+      li.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const dragging = document.querySelector('.ghost');
+        if (!dragging || dragging === li) return;
+        list.insertBefore(dragging, li);
+        refreshOrderInput();
+      });
+    });
+    refreshOrderInput();
+  }
+
+  // -------- Create: toggle & filter prodotti
+  const modeCreate = document.getElementById('mode-create');
+  const kitchenFieldCreate = document.getElementById('kitchen-field-create');
+  const productsBlockCreate = document.getElementById('products-block-create');
+  function toggleModeCreate(){
+    if (modeCreate.value === 'kds'){ kitchenFieldCreate.style.display=''; productsBlockCreate.style.display='none'; }
+    else { kitchenFieldCreate.style.display='none'; productsBlockCreate.style.display=''; }
+  }
+  if (modeCreate){ toggleModeCreate(); }
+  function filterProductsCreate(){
+    const q = (document.getElementById('prod-filter-create').value || '').toLowerCase();
+    Array.from(document.querySelectorAll('#prod-list-create li')).forEach(li => {
+      li.style.display = li.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  }
+  function beforeSubmitProductsCreate(){
+    if (modeCreate.value !== 'product_set') return true;
+    const ids = Array.from(document.querySelectorAll('.prod-check-create:checked')).map(chk => chk.value);
+    document.getElementById('product-ids-create').value = ids.join(',');
+    return true;
+  }
+
+  // -------- Edit per regola: toggle & filter prodotti
+  function toggleModeEdit(rid){
+    const sel = document.getElementById('mode-'+rid);
+    const kb = document.getElementById('kitchen-field-'+rid);
+    const pb = document.getElementById('products-block-'+rid);
+    if (!sel || !kb || !pb) return;
+    if (sel.value === 'kds'){ kb.style.display=''; pb.style.display='none'; }
+    else { kb.style.display='none'; pb.style.display=''; }
+  }
+  // inizializza tutti i blocchi edit in base alla modalità corrente
+  {% for r in rules %}
+  toggleModeEdit({{ r.id }});
+  {% endfor %}
+
+  function filterProducts(rid){
+    const q = (document.getElementById('prod-filter-'+rid).value || '').toLowerCase();
+    Array.from(document.querySelectorAll('#prod-list-'+rid+' li')).forEach(li => {
+      li.style.display = li.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  }
+  function beforeSubmitProductsEdit(rid){
+    const modeSel = document.getElementById('mode-'+rid);
+    if (!modeSel || modeSel.value !== 'product_set') return true;
+    const ids = Array.from(document.querySelectorAll('.prod-check-'+rid+':checked')).map(chk => chk.value);
+    document.getElementById('product-ids-'+rid).value = ids.join(',');
+    return true;
+  }
+</script>
+{% endblock %}

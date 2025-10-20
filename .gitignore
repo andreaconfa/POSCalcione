@@ -1,0 +1,41 @@
+# Python / FastAPI
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Venv
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# Log / build / cache
+*.log
+logs/
+build/
+dist/
+.cache/
+
+# Env & secrets
+.env
+.env.*
+*.key
+*.pem
+
+# DB locali
+app.db
+*.sqlite
+*.sqlite3
+
+# --- Ignora contenuti uploads ---
+app/static/uploads/**
+!app/static/uploads/.gitkeep

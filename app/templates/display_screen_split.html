@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block content %}
+<script>
+  // imposta la body class per nascondere la topbar
+  document.body.classList.add('screen-mode');
+
+  // costanti per questo schermo
+  const PREFIX = "{{ prefix }}";
+  const PLAYLIST_NAME = `screen_${PREFIX}`;
+  const PLAYLIST_URL  = `/api/playlist/by-screen/${PLAYLIST_NAME}`;
+  const RELOAD_INTERVAL_MS = 30000; // ← tolto il '+' di troppo
+</script>
+<style>
+  html, body { height:100%; }
+  body.screen-mode header, body.screen-mode .topbar { display:none!important; }
+  .page {
+    display:grid;
+    grid-template-columns: 1fr 2fr;  /* 1/3 - 2/3 */
+    gap:16px; height:100vh; padding:16px; box-sizing:border-box;
+    background:#06080b;
+  }
+  .panel { background:#0e1420; border-radius:16px; padding:0; color:#fff; overflow:hidden; }
+  /* sinistra: iframe con la TUA schermata originale */
+  .numbers-iframe { width:100%; height:100%; border:0; display:block; }
+  /* destra: player */
+  #media-stage { position:relative; width:100%; height:100%; }
+  .layer { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+           opacity:0; transition:opacity .6s ease; background:#000; }
+  .layer.active { opacity:1; }
+  .layer video, .layer img { max-width:100%; max-height:100%; object-fit:contain; display:block; background:#000; }
+  .badge { position:absolute; right:12px; bottom:12px; background:rgba(0,0,0,.5); padding:6px 10px; border-radius:10px; font-size:12px; }
+  @media (max-width: 1200px) { .page { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } }
+</style>
+
+<div class="page">
+  <!-- 1/3: la tua schermata originale, invariata, in iframe -->
+  <section class="panel">
+    <iframe class="numbers-iframe" src="/screen_full/{{ prefix }}" allow="autoplay"></iframe>
+  </section>
+
+  <!-- 2/3: Playlist media (identica a prima) -->
+  <section class="panel" style="position:relative;">
+    <div id="media-stage">
+      <div class="layer" id="layerA"></div>
+      <div class="layer" id="layerB"></div>
+    </div>
+    <div class="badge" id="badge">Playlist: caricamento…</div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const PLAYLIST_NAME = "screen_{{ prefix }}";
+  const PLAYLIST_URL = `/api/playlist/by-screen/${PLAYLIST_NAME}`;
+  const RELOAD_INTERVAL_MS = 30000;
+  const FRAGMENT_URL  = `/display/fragment?prefix=${encodeURIComponent(PREFIX)}`;
+  let playlist = {version:0, items:[]};
+  let index = 0;
+  let currentLayer = 'A';
+  let timer = null;
+  const layerA = document.getElementById('layerA');
+  const layerB = document.getElementById('layerB');
+  const badge  = document.getElementById('badge');
+  const otherLayer = id => id === 'A' ? 'B' : 'A';
+  const getLayerEl = id => id === 'A' ? layerA : layerB;
+  const setBadge = t => badge.textContent = t;
+  const clearLayer = el => { el.innerHTML=''; el.classList.remove('active'); };
+
+  async function fetchPlaylist(){
+    const res = await fetch(PLAYLIST_URL, {cache:"no-store"});
+    if(!res.ok) throw new Error("Playlist fetch error: " + res.status);
+    return await res.json();
+  }
+
+  function showOnLayer(layerId, item){
+    const el = getLayerEl(layerId);
+    clearLayer(el);
+    if(item.type === 'image'){
+      const img = document.createElement('img');
+      img.src = item.url;
+      el.appendChild(img);
+      requestAnimationFrame(()=> el.classList.add('active'));
+      return { node: img, isVideo: false };
+    } else {
+      const vid = document.createElement('video');
+      vid.src = item.url;
+      vid.autoplay = true;
+      vid.muted = !!item.mute;
+      vid.playsInline = true;
+      vid.controls = false;
+      vid.loop = false;
+      vid.preload = "metadata";
+      el.appendChild(vid);
+      vid.play().catch(()=>{});
+      requestAnimationFrame(()=> el.classList.add('active'));
+      return { node: vid, isVideo: true };
+    }
+  }
+
+function scheduleNext(currentItem, handle){
+  const DEFAULT_IMG_MS = 5000;
+
+  // Se sto riproducendo un video…
+  if(handle.isVideo){
+    const vid = handle.node;
+    const explicitMs = currentItem.duration_ms;
+
+    // 1 solo elemento in playlist? loop nativo del video
+    if (playlist.items.length === 1) {
+      // se è un video singolo e non hai messo una durata forzata, facciamo loop
+      if (!explicitMs || explicitMs <= 0) {
+        vid.loop = true;
+        vid.onended = null;
+        return; // non schedulare; resta in loop
+      }
+    }
+
+    if(explicitMs && explicitMs > 0){
+      // durata forzata -> vai avanti dopo quel tempo
+      timer = setTimeout(next, explicitMs);
+      vid.onended = null;
+    } else {
+      // nessuna durata -> vai avanti a fine video (con fail-safe)
+      vid.onended = () => next();
+      timer = setTimeout(next, 180000); // fail-safe 3 min
+    }
+    return;
+  }
+
+  // …altrimenti è un’immagine
+  const ms = (currentItem.duration_ms && currentItem.duration_ms > 0) ? currentItem.duration_ms : DEFAULT_IMG_MS;
+  timer = setTimeout(next, ms);
+}
+
+function next(){
+  // playlist vuota
+  if(!playlist.items || playlist.items.length === 0){
+    setBadge("Playlist vuota");
+    clearLayer(layerA); clearLayer(layerB);
+    index = 0;
+    return;
+  }
+
+  // LOOP: uso sempre modulo lunghezza
+  index = index % playlist.items.length;
+  const item = playlist.items[index];
+
+  const target = otherLayer(currentLayer);
+  const handle = showOnLayer(target, item);
+
+  // crossfade
+  getLayerEl(currentLayer).classList.remove('active');
+  currentLayer = target;
+
+  setBadge(`Playlist v${playlist.version} — elemento ${(index % playlist.items.length) + 1}/${playlist.items.length}`);
+  scheduleNext(item, handle);
+
+  index = (index + 1) % playlist.items.length; // <-- avanza, restando in loop
+}
+
+  async function start(){
+    try{
+      const data = await fetchPlaylist();
+      const changed = (data.version !== playlist.version) || (data.items.length !== playlist.items.length);
+      playlist = {version: data.version, items: data.items || []};
+      if(changed){
+        index = 0;
+        clearTimeout(timer);
+        clearLayer(layerA); clearLayer(layerB);
+        currentLayer = 'A';
+        next();
+      }
+    }catch(err){
+      console.error(err);
+      setBadge("Errore playlist");
+    }finally{
+      setTimeout(start, RELOAD_INTERVAL_MS);
+    }
+  }
+  start();
+})();
+</script>
+{% endblock %}

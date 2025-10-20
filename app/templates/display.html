@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Bottone per sbloccare l’audio (fisso nell’angolo) -->
+<button id="audio-enable" class="audio-btn">🔊 Abilita audio</button>
+
+<style>
+.audio-btn{
+  position: fixed; right: 16px; bottom: 16px; z-index: 9999;
+  background:#10b981; color:#04140f; border:0; border-radius:12px;
+  padding:12px 16px; font-weight:900; cursor:pointer;
+  box-shadow: 0 8px 22px rgba(0,0,0,.35);
+}
+.audio-btn.hidden { display:none; }
+</style>
+
+<h2 style="margin-top:0;">Display chiamata numeri</h2>
+
+<!-- SOTTOMENU -->
+<nav style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+  <a class="btn {{ 'primary' if mode=='all' else '' }}" href="/display">Tutte le postazioni</a>
+  {% for k in kitchens %}
+    <a class="btn {{ 'primary' if (mode=='one' and kitchen and kitchen.id==k.id) else '' }}" href="/display/{{k.prefix}}">
+      {{ k.name }} ({{ k.prefix }})
+    </a>
+  {% endfor %}
+</nav>
+
+<div id="display-wrap" class="display-wrap">
+  <div class="tag">Caricamento…</div>
+</div>
+
+<!-- OVERLAY BANNER -->
+<div id="overlay" class="overlay" hidden>
+  <div class="overlay-card">
+    <div class="overlay-title">RITIRO</div>
+    <div id="overlay-number" class="overlay-number">X 999</div>
+    <div id="overlay-where" class="overlay-where">Postazione</div>
+  </div>
+</div>
+
+<style>
+  /* Sfondo e typo grandi */
+  body { background: #06080b; }
+  .display-wrap {
+    border: 1px solid #2a2f36; border-radius: 12px; padding: 12px;
+    background: #0d1219;
+  }
+
+  /* Griglia “tutte” */
+  .grid-all {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+  .panel {
+    background: #121824; border:1px solid #273043; border-radius:12px; padding:12px;
+  }
+  .panel h3 { margin:0 0 8px 0; font-size:28px; letter-spacing:.5px; color:#e6eefc; }
+
+  /* Lista numeri enorme */
+  .nums { display:flex; flex-wrap:wrap; gap:10px; }
+  .num {
+    font-weight:900; letter-spacing:.6px;
+    background:#0f1a2a; border:1px solid #2d3a55; color:#e6f1ff;
+    border-radius:14px; padding:10px 16px;
+    font-size:42px;  /* <<< dimensione importante */
+    min-width: 120px; text-align:center;
+    box-shadow: 0 2px 0 rgba(255,255,255,0.05) inset, 0 8px 22px rgba(0,0,0,0.25);
+  }
+
+  /* Overlay */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: grid; place-items: center;
+    z-index: 9999;
+  }
+  .overlay-card {
+    text-align:center;
+    background: #0b1320;
+    border: 1px solid #2e3b5a;
+    border-radius: 20px;
+    padding: 24px 32px;
+    box-shadow: 0 20px 70px rgba(0,0,0,0.6);
+    min-width: 60vw;
+  }
+  .overlay-title {
+    color:#9fb7ff; font-size: 38px; font-weight:800; letter-spacing:1px; margin-bottom:10px;
+  }
+  .overlay-number {
+    color: #ffffff; font-size: 120px; font-weight: 1000;
+    letter-spacing: 2px; margin-bottom: 6px;
+  }
+  .overlay-where {
+    color:#86efac; font-size: 40px; font-weight:800;
+  }
+
+  /* Vista per singola postazione: numeri ancora più grandi */
+  .nums.one .num { font-size: 64px; min-width: 160px; padding:14px 20px; }
+  
+    /* forza l'hide quando c'è l'attributo hidden */
+  .overlay[hidden] { display: none !important; }
+
+  /* opzionale: piccola animazione di entrata/uscita */
+  .overlay.is-visible { animation: fadeIn .15s ease-out; }
+  @keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
+  
+</style>
+
+<script>
+(function(){
+  const MODE = "{{ mode }}";
+  const PREFIX = "{{ kitchen.prefix if kitchen else '' }}";
+  const wrap = document.getElementById("display-wrap");
+
+  async function loadFragment(){
+    const url = MODE === "one"
+      ? `/display/${PREFIX}/fragment?t=${Date.now()}`
+      : `/display/fragment?t=${Date.now()}`;
+    const r = await fetch(url, {cache:"no-store"});
+    wrap.innerHTML = await r.text();
+  }
+
+  // ------- Overlay robusto -------
+  const ov   = document.getElementById("overlay");
+  const num  = document.getElementById("overlay-number");
+  const where= document.getElementById("overlay-where");
+  let overlayTimer = null;
+
+  function hideOverlay(){
+    if (!ov) return;
+    ov.classList.remove('is-visible');
+    ov.hidden = true;
+    if (overlayTimer){ clearTimeout(overlayTimer); overlayTimer = null; }
+  }
+
+  function showOverlay(prefix, seq){
+    if (!ov) return;
+    num.textContent   = `${prefix} ${seq}`;
+    where.textContent = (prefix === "C" ? "Casetta" : (prefix === "E" ? "Esterno" : `Postazione ${prefix}`));
+    ov.hidden = false;
+    ov.classList.add('is-visible');
+
+    // beep semplice
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = "sine"; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.7);
+      o.start(); o.stop(ctx.currentTime + 0.7);
+    } catch {}
+
+    // resetta e imposta timeout di chiusura
+    if (overlayTimer){ clearTimeout(overlayTimer); }
+    overlayTimer = setTimeout(hideOverlay, 3500);
+  }
+
+  // chiusura manuale (click/ESC)
+  ov.addEventListener('click', hideOverlay);
+  document.addEventListener('keydown', (e)=>{
+    if (e.key === 'Escape') hideOverlay();
+  });
+
+  // ------- WebSocket -------
+  try{
+    const ws = new WebSocket((location.protocol==="https:" ? "wss://" : "ws://") + location.host + "/ws");
+    ws.addEventListener("message", (ev)=>{
+      try{
+        const data = JSON.parse(ev.data);
+        if (data.type === "ticket_ready") {
+          if (MODE === "all" || (MODE === "one" && data.prefix === PREFIX)) {
+            showOverlay(data.prefix, data.seq);
+            loadFragment();
+          }
+        }
+      } catch {}
+    });
+  }catch{}
+
+  // primo render + failsafe refresh
+  loadFragment();
+  setInterval(loadFragment, 15000);
+})();
+</script>
+
+{% endblock %}
+
+
+<button id="audio-enable" class="audio-btn">🔊 Abilita audio</button>
+<style>
+.audio-btn{
+  position: fixed; right: 16px; bottom: 16px; z-index: 9999;
+  background:#10b981; color:#04140f; border:0; border-radius:12px;
+  padding:12px 16px; font-weight:900; cursor:pointer;
+  box-shadow: 0 8px 22px rgba(0,0,0,.35);
+}
+.audio-btn.hidden { display:none; }
+</style>
+
+
+<script>
+let audioUnlocked = false, audioCtx = null;
+
+function unlockAudio() {
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    g.gain.value = 0.0001; o.connect(g).connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.05);
+    audioUnlocked = true;
+    document.getElementById('audio-enable')?.classList.add('hidden');
+    localStorage.setItem('display_audio_unlocked','1');
+  } catch(e){ console.warn("Audio unlock failed:", e); }
+}
+
+function playDing() {
+  if (!audioUnlocked || !audioCtx) return;
+  const now = audioCtx.currentTime;
+  const osc1 = audioCtx.createOscillator(), osc2 = audioCtx.createOscillator(), gain = audioCtx.createGain();
+  osc1.type='sine'; osc2.type='sine';
+  osc1.frequency.setValueAtTime(880, now);      // A5
+  osc2.frequency.setValueAtTime(1318.5, now);   // E6
+  gain.gain.setValueAtTime(0.001, now);
+  gain.gain.linearRampToValueAtTime(0.35, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.9);
+  osc1.connect(gain); osc2.connect(gain); gain.connect(audioCtx.destination);
+  osc1.start(now); osc2.start(now); osc1.stop(now + 0.95); osc2.stop(now + 0.95);
+}
+
+// bottone sblocco (richiesto dai browser)
+const audioBtn = document.getElementById('audio-enable');
+if (audioBtn){
+  if (localStorage.getItem('display_audio_unlocked') === '1'){ audioBtn.classList.add('hidden'); unlockAudio(); }
+  audioBtn.addEventListener('click', unlockAudio);
+}
+
+// hook su ws.onmessage: aggiunge il suono su ticket_ready e lascia intatto il resto
+(function attachSound(){
+  if (!window.ws) { setTimeout(attachSound, 300); return; }
+  const prev = ws.onmessage;
+  ws.onmessage = (ev) => {
+    try {
+      const m = JSON.parse(ev.data || '{}');
+      if (m.type === 'ticket_ready') {
+        // il tuo popup resta com’è (showPopup)
+        if (typeof showPopup === 'function') showPopup(m.prefix, m.seq);
+        playDing();
+      }
+    } catch(e) { /* ignore */ }
+    if (typeof prev === 'function') prev.call(ws, ev); // non rompiamo il resto
+  };
+})();
+</script>

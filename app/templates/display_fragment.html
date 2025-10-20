@@ -1,0 +1,30 @@
+{% if mode == "all" %}
+  {% set total = 0 %}
+  <div class="panel">
+    <h3>Numeri pronti</h3>
+    <div class="nums" id="nums-ALL">
+      {% for px, seqs in (by_prefix or {}).items() %}
+        {% for s in seqs %}
+          {% set total = total + 1 %}
+          <div class="num" data-prefix="{{ px }}" data-seq="{{ s }}">{{ px }} {{ s }}</div>
+        {% endfor %}
+      {% endfor %}
+      {% if total == 0 %}
+        <div class="tag">Nessun numero pronto</div>
+      {% endif %}
+    </div>
+  </div>
+{% else %}
+  <div class="panel">
+    <h3>{{ "Casetta" if prefix=="C" else ("Esterno" if prefix=="E" else "Postazione " ~ prefix) }}</h3>
+    <div class="nums one" id="nums-{{ prefix }}">
+      {% if seqs and seqs|length>0 %}
+        {% for s in seqs %}
+          <div class="num" data-prefix="{{ prefix }}" data-seq="{{ s }}">{{ prefix }} {{ s }}</div>
+        {% endfor %}
+      {% else %}
+        <div class="tag">Nessun numero pronto</div>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}

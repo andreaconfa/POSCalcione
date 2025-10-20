@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 style="margin-top:0;">Storico ordini</h2>
+
+<div class="card" style="margin-bottom:12px;">
+  <form method="get" class="grid"
+        style="grid-template-columns: repeat(4, 1fr) auto auto; gap:8px; align-items:end;">
+    <div>
+      <label class="text-s">Dal (data)</label>
+      <input class="input" type="date" name="start" value="{{ start }}">
+    </div>
+    <div>
+      <label class="text-s">Al (data)</label>
+      <input class="input" type="date" name="end" value="{{ end }}">
+    </div>
+    <div>
+      <label class="text-s">Dalle (ora)</label>
+      <input class="input" type="time" name="start_time" value="{{ start_time }}">
+    </div>
+    <div>
+      <label class="text-s">Alle (ora)</label>
+      <input class="input" type="time" name="end_time" value="{{ end_time }}">
+    </div>
+    <div>
+      <label class="text-s">Max righe</label>
+      <input class="input" type="number" min="1" max="2000" name="limit" value="{{ limit }}">
+    </div>
+    <div>
+      <button class="btn" type="submit">Filtra</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:10px;">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <div class="text-s">Risultati: <b>{{ total_count }}</b></div>
+    <div><a class="btn" href="/admin">⬅ Torna ad Admin</a></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table is-fullwidth is-striped orders-table">
+      <thead>
+        <tr>
+          <th style="white-space:nowrap;">Ordine</th>
+          <th style="white-space:nowrap;">Data / Ora</th>
+          <th>Metodo</th>
+          <th style="white-space:nowrap;">Numeri (KDS)</th>
+          <th style="text-align:right;">Totale</th>
+          <th>Righe</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in orders %}
+        <tr>
+          <td style="white-space:nowrap; font-weight:700;">#{{ o.id }}</td>
+          <td style="white-space:nowrap;">{{ o.created_at }}</td>
+          <td>{{ o.paid_method or 'n/d' }}</td>
+          <td>
+            {# Supporta SIA ticket_labels_by_order (stringa) SIA ticket_nums_by_order (lista) #}
+            {% set lbl = (ticket_labels_by_order and ticket_labels_by_order.get(o.id)) %}
+            {% set nums = (ticket_nums_by_order and ticket_nums_by_order.get(o.id)) %}
+
+            {% if lbl %}
+              {% set parts = lbl.split(',') %}
+              <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                {% for p in parts %}
+                  {% set n = p.strip() %}
+                  {% if n %}
+                    <span class="badge">{{ n }}</span>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% elif nums and nums|length %}
+              <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                {% for n in nums %}
+                  <span class="badge">{{ n }}</span>
+                {% endfor %}
+              </div>
+            {% else %}
+              <span class="text-s" style="opacity:.7;">—</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right; font-variant-numeric: tabular-nums;">
+            € {{ '%.2f' % ((o.total_cents or 0) / 100.0) }}
+          </td>
+          <td>
+            {% set rows = items_by_order.get(o.id, []) %}
+            {% if rows and rows|length %}
+              <ul class="text-s" style="margin:0; padding-left:16px;">
+                {% for (nm, q) in rows %}
+                  <li>{{ q }}× {{ nm }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <span class="text-s" style="opacity:.7;">(nessuna riga)</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if orders|length == 0 %}
+        <tr>
+          <td colspan="6" class="text-s" style="opacity:.75;">Nessun ordine nel periodo selezionato.</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<style>
+  /* linea divisoria tra ordini */
+  .orders-table tbody tr:not(:first-child) td{
+    border-top: 2px dashed var(--line, rgba(148,163,184,.25));
+  }
+  /* badge per sigle KDS */
+  .badge{
+    display:inline-block;
+    border:1px solid var(--line, rgba(148,163,184,.35));
+    border-radius:999px;
+    padding:2px 8px;
+    font-size:12px;
+    opacity:.95;
+  }
+</style>
+{% endblock %}

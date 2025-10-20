@@ -1,0 +1,180 @@
+{# app/templates/kds_fragment.html #}
+
+{% for t in tickets %}
+{% set st = 'preparing' if t['status'] == 'prepping' else t['status'] %}
+<div class="kds-card status-{{ st }}"
+     data-seq="{{ t['seq'] }}"
+     data-status="{{ st }}"
+     data-kitchen="{{ prefix }}">
+
+  <!-- Barra colore stato -->
+  <div class="kds-statebar" aria-hidden="true"></div>
+
+	<div class="kds-header">
+	  <div class="pickup">{{ prefix }} {{ t['seq'] }}</div>
+	  <div class="kds-toolbar">
+		<span class="badge" data-badge>
+		  {% if st == 'preparing' %}
+			In preparazione
+		  {% elif st == 'ready' %}
+			Pronto
+		  {% elif st == 'delivered' %}
+			Consegnato
+		  {% else %}
+			In coda
+		  {% endif %}
+		</span>
+		{% if t.get('age') %}
+		  <span class="badge badge-age" title="Tempo in attesa">⏱ {{ t['age'] }}</span>
+		{% endif %}
+	  </div>
+	</div>
+
+
+  <div class="kds-lines">
+    {# t['items'] può contenere:
+       - dict {"name":..., "qty":..., "options":[{"name":..,"value":..}, ...]}
+       - oppure tuple (name, qty) per compatibilità #}
+    {% for row in t['items'] %}
+      {% if row is mapping %}
+        <div class="kds-line">
+          <div><span class="kds-qty">{{ row['qty'] }}×</span> <span class="kds-name">{{ row['name'] }}</span></div>
+          {% if row.get('options') and row['options']|length %}
+            <ul class="kds-opts">
+              {% for o in row['options'] %}
+                <li>· {{ o.get('name','') }}: {{ o.get('value','') }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      {% else %}
+        {% set name = row[0] %}
+        {% set qty  = row[1] %}
+        <div class="kds-line"><span class="kds-qty">{{ qty }}×</span> <span class="kds-name">{{ name }}</span></div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <div class="kds-actions">
+    {% if t['status'] in ('queued', 'queue', 'inqueue') %}
+      <form class="kds-act" method="post"
+            action="/kds/{{ prefix }}/{{ t['seq'] }}/preparing"
+            onsubmit="return window.kdsInterceptSubmit && window.kdsInterceptSubmit(event, this);">
+        <button class="kds-btn prepare" type="submit">Prepara</button>
+      </form>
+    {% elif t['status'] in ('prepping', 'preparing') %}
+      <form class="kds-act" method="post"
+            action="/kds/{{ prefix }}/{{ t['seq'] }}/ready"
+            onsubmit="return window.kdsInterceptSubmit && window.kdsInterceptSubmit(event, this);">
+        <button class="kds-btn ready" type="submit">Pronto</button>
+      </form>
+    {% elif t['status'] == 'ready' %}
+      <form class="kds-act" method="post"
+            action="/kds/{{ prefix }}/{{ t['seq'] }}/delivered"
+            onsubmit="return window.kdsInterceptSubmit && window.kdsInterceptSubmit(event, this);">
+        <button class="kds-btn delivered" type="submit">Consegnato</button>
+      </form>
+    {% endif %}
+  </div>
+
+</div>
+{% endfor %}
+
+{% if tickets|length == 0 %}
+  <div class="tag">Nessun ordine in coda</div>
+{% endif %}
+
+<style>
+/* === KDS: card con sfondo per stato + barra laterale === */
+.kds-card{
+  /* regolabili */
+  --kds-statebar-w: 6px;
+  --kds-statebar-gap: 10px;
+
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+
+  /* aggiunge aria a sinistra per la barra */
+  padding: 10px 10px 10px calc(10px + var(--kds-statebar-w) + var(--kds-statebar-gap));
+
+  /* forza lo sfondo colorato su tutta la card */
+  background: var(--kds-card-bg, transparent) !important;
+}
+
+/* barra verticale a sinistra */
+.kds-statebar{
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--kds-statebar-w);
+  background: var(--kds-statebar-color, #9ca3af);
+  border-radius: 12px 0 0 12px;
+}
+
+/* (opzionale) badge stato e age coordinati ma senza toccare le righe */
+.kds-card .badge{
+  display:inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.35;
+  border: 1px solid var(--kds-badge-bd, rgba(148,163,184,.30));
+  background: var(--kds-badge-bg, rgba(148,163,184,.14));
+  color: var(--kds-badge-fg, #e5e7eb);
+  white-space: nowrap;
+}
+
+/* === palette per stato (solo tinta card + barra + badge) === */
+.status-queued{
+  --kds-card-bg: rgba(100,116,139,.12);  /* slate-500 soft */
+  --kds-statebar-color: #64748b;
+  --kds-badge-bg: rgba(100,116,139,.16);
+  --kds-badge-fg: #cbd5e1;
+  --kds-badge-bd: rgba(100,116,139,.35);
+}
+.status-preparing,
+.status-prepping{
+  --kds-card-bg: rgba(245,158,11,.12);   /* amber-500 soft */
+  --kds-statebar-color: #f59e0b;
+  --kds-badge-bg: rgba(245,158,11,.18);
+  --kds-badge-fg: #fde68a;
+  --kds-badge-bd: rgba(245,158,11,.40);
+}
+.status-ready{
+  --kds-card-bg: rgba(34,197,94,.12);    /* green-500 soft */
+  --kds-statebar-color: #22c55e;
+  --kds-badge-bg: rgba(34,197,94,.18);
+  --kds-badge-fg: #bbf7d0;
+  --kds-badge-bd: rgba(34,197,94,.45);
+}
+.status-delivered{
+  --kds-card-bg: rgba(96,165,250,.12);   /* blue-400 soft */
+  --kds-statebar-color: #60a5fa;
+  --kds-badge-bg: rgba(96,165,250,.18);
+  --kds-badge-fg: #bfdbfe;
+  --kds-badge-bd: rgba(96,165,250,.45);
+}
+
+  .kds-card .badge-age{
+    background: rgba(148,163,184,.14);
+    color: #e5e7eb;
+    border: 1px solid rgba(148,163,184,.30);
+  }
+  .kds-card .badge-age.ok{
+    background: rgba(34,197,94,.22);
+    color: #bbf7d0;
+    border-color: rgba(34,197,94,.50);
+  }
+  .kds-card .badge-age.warn{
+    background: rgba(245,158,11,.20);
+    color: #fde68a;
+    border-color: rgba(245,158,11,.45);
+  }
+  .kds-card .badge-age.danger{
+    background: rgba(239,68,68,.22);
+    color: #fecaca;
+    border-color: rgba(239,68,68,.50);
+  }
+
+
+</style>
