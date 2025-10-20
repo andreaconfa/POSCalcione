@@ -13,7 +13,7 @@ Backend **FastAPI + SQLModel**, frontend HTML/JS leggero. Progettato per più cu
 - [Requisiti](#requisiti)
 - [Configurazione](#configurazione)
 - [Avvio rapido (sviluppo)](#avvio-rapido-sviluppo)
-
+- [Screenshot UI](#UI)
 ---
 
 ## A cosa serve
@@ -64,3 +64,10 @@ L’app sarà disponibile su: `http://<host>:8000`
 
 ---
 
+## UI
+![Pagina POS](docs/screenshots/POS.gif)
+![KDS](docs/screenshots/KDS.gif)
+![Display Chiamata](docs/screenshots/client_display.gif)
+![Amministrazione](docs/screenshots/admin1.gif)
+![Gestione Stampanti](docs/screenshots/printer.gif)
+---
