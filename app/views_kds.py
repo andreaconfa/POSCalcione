@@ -1,18 +1,26 @@
 # app/views_kds.py
-from datetime import datetime, timezone
-from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-from sqlmodel import select
+from __future__ import annotations
 
-from .db import get_session
-from .ws import manager  # se già presente nel progetto originale
+from datetime import datetime, timezone
+from typing import Annotated, Dict, List
+
+from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from sqlmodel import select, Session
+
+from .db import get_session_dep
+from .ws import manager
 from .models import Kitchen, Ticket, Order, OrderLine, Product
-from .models_customizations import OrderLineOption  # <-- per leggere le opzioni
+from .models_customizations import OrderLineOption
+
+# Dipendenza tipizzata
+SessionDep = Annotated[Session, Depends(get_session_dep)]
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
+# --- util -------------------------------------------------------------------
 
 def _age_human(dt: datetime | None) -> str:
     if not dt:
@@ -31,215 +39,215 @@ def _age_human(dt: datetime | None) -> str:
         return f"{m}m {s}s"
     return f"{s}s"
 
+# Micro-cache Kitchen by prefix (riduce query durante polling)
+from time import time
+_KCACHE: Dict[str, dict] = {}
+_KCACHE_TTL = 5.0  # secondi
+
+def _kitchen_by_prefix(prefix: str, session: Session) -> Kitchen | None:
+    key = (prefix or "").upper().strip()
+    now = time()
+    hit = _KCACHE.get(key)
+    if hit and (now - hit["t"] < _KCACHE_TTL):
+        return hit["v"]  # type: ignore
+    k = session.exec(select(Kitchen).where(Kitchen.prefix == key)).first()
+    _KCACHE[key] = {"v": k, "t": now}
+    return k
+
+# --- pagine -----------------------------------------------------------------
+
+@router.get("/kds", response_class=HTMLResponse)
+def kds_index(request: Request, session: SessionDep):
+    kitchens = session.exec(select(Kitchen).order_by(Kitchen.prefix.asc())).all()
+    return templates.TemplateResponse("kds_index.html", {"request": request, "kitchens": kitchens})
 
 @router.get("/kds/{prefix}", response_class=HTMLResponse)
-def kds_page(prefix: str, request: Request):
+def kds_page(prefix: str, request: Request, session: SessionDep):
     """Pagina host KDS (carica il fragment via fetch)."""
-    with get_session() as session:
-        k = session.exec(select(Kitchen).where(Kitchen.prefix == prefix.upper())).first()
-        if not k:
-            raise HTTPException(status_code=404, detail="Postazione non trovata")
+    k = _kitchen_by_prefix(prefix, session)
+    if not k:
+        raise HTTPException(status_code=404, detail="Postazione non trovata")
     return templates.TemplateResponse(
         "kds.html",
         {"request": request, "kitchen": k, "prefix": k.prefix, "kitchen_name": k.name},
     )
 
-
-    
-# Pagina elenco: bottoni che puntano a /kds/{prefix}
-@router.get("/kds", response_class=HTMLResponse)
-def kds_index(request: Request):
-    with get_session() as s:
-        kitchens = s.exec(select(Kitchen).order_by(Kitchen.prefix.asc())).all()
-    return templates.TemplateResponse("kds_index.html", {
-        "request": request,
-        "kitchens": kitchens,
-    })
-
-# Rotta richiesta: /kds/{PREFISSO} → apre il KDS "di cucina"
-@router.get("/kds/{prefix}")
-def kds_open(prefix: str):
-    # Se il tuo KDS vive su /display/{prefix}, reindirizziamo lì:
-    return RedirectResponse(url=f"/display/{prefix}", status_code=307)    
+# (se vuoi tenere un redirect “compat” spostalo su un path diverso)
+@router.get("/kds_redirect/{prefix}")
+def kds_open_redirect(prefix: str):
+    return RedirectResponse(url=f"/display/{prefix}", status_code=307)
 
 @router.get("/kds/select", response_class=HTMLResponse)
 def kds_select_redirect():
     return RedirectResponse(url="/kds", status_code=303)
-    
-@router.get("/kds/{prefix}/fragment", response_class=HTMLResponse)
-def kds_fragment(prefix: str, request: Request):
-    """Ritorna solo il corpo (cards) – usato dal polling e dai poke WS."""
-    with get_session() as session:
-        k = session.exec(select(Kitchen).where(Kitchen.prefix == prefix.upper())).first()
-        if not k:
-            return HTMLResponse("<div class='tag'>Nessuna postazione trovata</div>", status_code=404)
 
-        # Ticket visibili (come l’originale): niente delivered
-        tickets = session.exec(
-            select(Ticket)
-            .where(
-                Ticket.kitchen_id == k.id,
-                Ticket.status.in_(("queued", "prepping", "ready")),
+# --- fragment (polling/refresh) --------------------------------------------
+
+@router.get("/kds/{prefix}/fragment", response_class=HTMLResponse)
+def kds_fragment(request: Request, session: SessionDep, prefix: str):
+    """Ritorna solo il corpo (cards) – usato dal polling e dai poke WS."""
+    px = (prefix or "").upper()
+
+    k = session.exec(select(Kitchen).where(Kitchen.prefix == px)).first()
+    if not k:
+        return HTMLResponse("<div class='tag'>Nessuna postazione trovata</div>", status_code=404)
+
+    # 👇 estrai SUBITO scalari e usa solo questi (no ORM object dopo)
+    k_id = int(k.id)
+    k_prefix = (k.prefix or "").upper()
+    k_name = k.name or ""
+
+    tickets = session.exec(
+        select(Ticket)
+        .where(
+            Ticket.kitchen_id == k_id,
+            Ticket.status.in_(("queued", "prepping", "ready")),
+        )
+        .order_by(Ticket.pickup_seq)
+    ).all()
+
+    # Cache prodotti per nome (mappa scalare -> scalare)
+    prod_map = {int(p.id): p.name for p in session.exec(select(Product)).all()}
+
+    # Prepara le righe
+    view = []
+    for t in tickets:
+        lines = session.exec(
+            select(OrderLine).where(
+                OrderLine.kitchen_id == k_id,
+                OrderLine.pickup_seq == t.pickup_seq,
+                OrderLine.order_id == t.order_id,
             )
-            .order_by(Ticket.pickup_seq)
         ).all()
 
-        # Cache prodotti per nome
-        prod_map = {p.id: p for p in session.exec(select(Product)).all()}
-
-        view = []
-        for t in tickets:
-            # 🔒 Filtro corretto: stesse condizioni con cui sono state create le orderlines per quel ticket
-            lines = session.exec(
-                select(OrderLine).where(
-                    OrderLine.kitchen_id == k.id,
-                    OrderLine.pickup_seq == t.pickup_seq,
-                    OrderLine.order_id == t.order_id,  # <-- CRITICO per evitare “linee fantasma”
-                )
+        line_ids = [int(ln.id) for ln in lines]
+        opts_by_line: dict[int, list[OrderLineOption]] = {}
+        if line_ids:
+            all_opts = session.exec(
+                select(OrderLineOption).where(OrderLineOption.orderline_id.in_(line_ids))
             ).all()
+            for o in all_opts:
+                opts_by_line.setdefault(int(o.orderline_id), []).append(o)
 
-            # Opzioni per riga (se presenti)
-            line_ids = [ln.id for ln in lines]
-            opts_by_line: dict[int, list[OrderLineOption]] = {}
-            if line_ids:
-                all_opts = session.exec(
-                    select(OrderLineOption).where(OrderLineOption.orderline_id.in_(line_ids))
-                ).all()
-                for o in all_opts:
-                    opts_by_line.setdefault(o.orderline_id, []).append(o)
+        items = []
+        for ln in lines:
+            pname = prod_map.get(int(ln.product_id))
+            if not pname:
+                continue
+            item = {"name": pname, "qty": int(ln.qty or 0)}
+            line_opts = opts_by_line.get(int(ln.id)) or []
+            if line_opts:
+                item["options"] = [
+                    {"name": (o.prompt_name or ""), "value": (o.value or "")}
+                    for o in line_opts
+                ]
+            items.append(item)
 
-            items = []
-            for ln in lines:
-                p = prod_map.get(ln.product_id)
-                if not p:
-                    continue
-                item = {"name": p.name, "qty": ln.qty}
-                line_opts = opts_by_line.get(ln.id) or []
-                if line_opts:
-                    item["options"] = [
-                        {"name": (o.prompt_name or ""), "value": (o.value or "")}
-                        for o in line_opts
-                    ]
-                items.append(item)
+        created = None
+        if t.order_id:
+            order = session.get(Order, t.order_id)
+            created = getattr(order, "created_at", None)
 
-            created = None
-            if t.order_id:
-                order = session.get(Order, t.order_id)
-                created = getattr(order, "created_at", None)
+        view.append({
+            "seq": t.pickup_seq,
+            "status": t.status,
+            "age": _age_human(created),
+            "items": items,
+        })
 
-            view.append({
-                "seq": t.pickup_seq,
-                "status": t.status,
-                "age": _age_human(created),
-                "items": items,
-            })
-
-    # NB: passiamo 'prefix' esattamente come l’originale si aspettava
     resp = templates.TemplateResponse(
         "kds_fragment.html",
-        {"request": request, "prefix": k.prefix, "kitchen_name": k.name, "tickets": view},
+        {"request": request, "prefix": k_prefix, "kitchen_name": k_name, "tickets": view},
     )
     resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
 
 
-
-from fastapi import Request
-from fastapi.responses import JSONResponse, RedirectResponse
+# --- helpers ----------------------------------------------------------------
 
 def _state_response(request: Request, prefix: str, payload: dict):
-    # Se arrivi dal fetch JS, rispondi JSON. Altrimenti fai redirect gentile alla pagina KDS
+    # Se arrivi dal fetch JS, rispondi JSON. Altrimenti redirect gentile alla pagina KDS
     if request.headers.get("X-Fetch") == "1":
         return JSONResponse(payload)
     return RedirectResponse(url=f"/kds/{prefix}", status_code=303)
 
+# --- azioni KDS -------------------------------------------------------------
+
 @router.post("/kds/{prefix}/{seq}/preparing")
-async def kds_preparing(request: Request, prefix: str, seq: int):
-    prefix = (prefix or "").upper()
-    with get_session() as session:
-        k = session.exec(select(Kitchen).where(Kitchen.prefix == prefix)).first()
-        if not k:
-            raise HTTPException(status_code=404, detail="Cucina non trovata")
-        tk = session.exec(
-            select(Ticket).where(Ticket.kitchen_id == k.id, Ticket.pickup_seq == seq)
-        ).first()
-        if not tk:
-            raise HTTPException(status_code=404, detail="Ticket non trovato")
-        if tk.status == "delivered":
-            raise HTTPException(status_code=409, detail="Ticket già consegnato")
+async def kds_preparing(request: Request, prefix: str, seq: int, session: SessionDep):
+    px = (prefix or "").upper()
+    k = _kitchen_by_prefix(px, session)
+    if not k:
+        raise HTTPException(status_code=404, detail="Cucina non trovata")
 
-        tk.status = "prepping"
-        session.add(tk)
-        session.commit()
+    tk = session.exec(
+        select(Ticket).where(Ticket.kitchen_id == k.id, Ticket.pickup_seq == seq)
+    ).first()
+    if not tk:
+        raise HTTPException(status_code=404, detail="Ticket non trovato")
+    if tk.status == "delivered":
+        raise HTTPException(status_code=409, detail="Ticket già consegnato")
 
-    # — WS: aggiorna KDS + ping display per eventuale riallineamento
+    tk.status = "prepping"
+    session.add(tk)
+    session.commit()
+
     try:
-        await manager.broadcast_json({"type": "ticket_update", "prefix": prefix, "seq": seq, "status": "prepping"})
-        await manager.broadcast_json({"type": "display_refresh", "prefix": prefix})
-    except Exception as _e:
-        pass
-
-    return _state_response(request, prefix, {"ok": True, "status": "prepping"})
-
-@router.post("/kds/{prefix}/{seq}/ready")
-async def kds_ready(request: Request, prefix: str, seq: int):
-    prefix = (prefix or "").upper()
-    with get_session() as session:
-        k = session.exec(select(Kitchen).where(Kitchen.prefix == prefix)).first()
-        if not k:
-            raise HTTPException(status_code=404, detail="Cucina non trovata")
-        tk = session.exec(
-            select(Ticket).where(Ticket.kitchen_id == k.id, Ticket.pickup_seq == seq)
-        ).first()
-        if not tk:
-            raise HTTPException(status_code=404, detail="Ticket non trovato")
-        if tk.status == "delivered":
-            raise HTTPException(status_code=409, detail="Ticket già consegnato")
-
-        tk.status = "ready"
-        session.add(tk)
-        session.commit()
-
-    # — WS: aggiorna KDS + TRIGGER per DISPLAY (numero grande)
-    # notifica sia update che "ready" (per popup display)
-    await manager.broadcast_json({
-        "type": "ticket_update",
-        "prefix": prefix,
-        "seq": seq,
-        "status": "ready"
-    })
-    await manager.broadcast_json({
-        "type": "ticket_ready",
-        "prefix": prefix,
-        "seq": seq,
-        # se vuoi anche il nome cucina per l’overlay:
-        # "kitchen_name": "Casetta" if px=="C" else ("Esterno" if px=="E" else f"Postazione {px}")
-    })
-
-    return _state_response(request, prefix, {"ok": True, "status": "ready"})
-
-@router.post("/kds/{prefix}/{seq}/delivered")
-async def kds_delivered(request: Request, prefix: str, seq: int):
-    prefix = (prefix or "").upper()
-    with get_session() as session:
-        k = session.exec(select(Kitchen).where(Kitchen.prefix == prefix)).first()
-        if not k:
-            raise HTTPException(status_code=404, detail="Cucina non trovata")
-        tk = session.exec(
-            select(Ticket).where(Ticket.kitchen_id == k.id, Ticket.pickup_seq == seq)
-        ).first()
-        if not tk:
-            raise HTTPException(status_code=404, detail="Ticket non trovato")
-
-        tk.status = "delivered"
-        session.add(tk)
-        session.commit()
-
-    # — WS: aggiorna KDS + notifica display per rimuovere/pulire
-    try:
-        await manager.broadcast_json({"type": "ticket_update", "prefix": prefix, "seq": seq, "status": "delivered"})
-        await manager.broadcast_json({"type": "ticket_delivered", "prefix": prefix, "seq": seq})
+        await manager.broadcast_json({"type": "ticket_update", "prefix": px, "seq": seq, "status": "prepping"})
+        await manager.broadcast_json({"type": "display_refresh", "prefix": px})
     except Exception:
         pass
 
-    return _state_response(request, prefix, {"ok": True, "status": "delivered"})
+    return _state_response(request, px, {"ok": True, "status": "prepping"})
+
+@router.post("/kds/{prefix}/{seq}/ready")
+async def kds_ready(request: Request, prefix: str, seq: int, session: SessionDep):
+    px = (prefix or "").upper()
+    k = _kitchen_by_prefix(px, session)
+    if not k:
+        raise HTTPException(status_code=404, detail="Cucina non trovata")
+
+    tk = session.exec(
+        select(Ticket).where(Ticket.kitchen_id == k.id, Ticket.pickup_seq == seq)
+    ).first()
+    if not tk:
+        raise HTTPException(status_code=404, detail="Ticket non trovato")
+    if tk.status == "delivered":
+        raise HTTPException(status_code=409, detail="Ticket già consegnato")
+
+    tk.status = "ready"
+    session.add(tk)
+    session.commit()
+
+    try:
+        await manager.broadcast_json({"type": "ticket_update", "prefix": px, "seq": seq, "status": "ready"})
+        await manager.broadcast_json({"type": "ticket_ready", "prefix": px, "seq": seq})
+    except Exception:
+        pass
+
+    return _state_response(request, px, {"ok": True, "status": "ready"})
+
+@router.post("/kds/{prefix}/{seq}/delivered")
+async def kds_delivered(request: Request, prefix: str, seq: int, session: SessionDep):
+    px = (prefix or "").upper()
+    k = _kitchen_by_prefix(px, session)
+    if not k:
+        raise HTTPException(status_code=404, detail="Cucina non trovata")
+
+    tk = session.exec(
+        select(Ticket).where(Ticket.kitchen_id == k.id, Ticket.pickup_seq == seq)
+    ).first()
+    if not tk:
+        raise HTTPException(status_code=404, detail="Ticket non trovato")
+
+    tk.status = "delivered"
+    session.add(tk)
+    session.commit()
+
+    try:
+        await manager.broadcast_json({"type": "ticket_update", "prefix": px, "seq": seq, "status": "delivered"})
+        await manager.broadcast_json({"type": "ticket_delivered", "prefix": px, "seq": seq})
+    except Exception:
+        pass
+
+    return _state_response(request, px, {"ok": True, "status": "delivered"})

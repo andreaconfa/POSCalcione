@@ -1,17 +1,19 @@
 # app/routers/views_receipts.py
 from __future__ import annotations
+
 import os
-import re 
-from pathlib import Path 
-from typing import Optional, List
-from fastapi import APIRouter, Depends, Form, Request, Query
+import re
+from pathlib import Path
+from typing import Optional, List, Annotated
+
+from fastapi import APIRouter, Depends, Form, Request, Query, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlmodel import select, delete, desc
-from fastapi import UploadFile, File
-from ..paths import UPLOADS_DIR
 from sqlalchemy import func
-from ..db import get_session
+from sqlmodel import select, delete, desc, Session
+
+from ..paths import UPLOADS_DIR
+from ..db import get_session_dep
 from ..models import Product, Kitchen, Order
 from ..receipts.models_receipts import (
     Printer, ReceiptTemplate, ReceiptRule, ReceiptRuleProduct, PrintedReceipt
@@ -23,31 +25,28 @@ SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
+# ---- Dipendenza tipizzata per la sessione ----
+SessionDep = Annotated[Session, Depends(get_session_dep)]
+
 # ---------- Helpers ----------
-def to_int(val, default=None):
+def to_int(val, default: Optional[int] = None) -> Optional[int]:
     try:
         return int(val)
     except Exception:
         return default
 
-def to_bool(val):
+def to_bool(val) -> bool:
     return str(val).lower() in ("1", "true", "on", "yes")
-def to_int(val: str, default: Optional[int] = None) -> Optional[int]:
-    try:
-        return int(val)
-    except Exception:
-        return default
 
-def to_bool(val: str) -> bool:
-    return str(val).lower() in ("1", "true", "on", "yes")
-    
+def safe_filename(name: str) -> str:
+    name = os.path.basename(name)
+    name = SAFE_RE.sub("_", name)
+    return name[:120]
+
 # ---------- PAGE ----------
 # RISTAMPA DA LOG
 @router.post("/admin/receipts/logs/reprint")
-def reprint_from_log(
-    log_id: int = Form(...),
-    session=Depends(get_session),
-):
+def reprint_from_log(session: SessionDep, log_id: int = Form(...)):
     rec = session.get(PrintedReceipt, log_id)
     if not rec:
         return RedirectResponse(url="/admin/receipts/logs", status_code=303)
@@ -63,13 +62,9 @@ def reprint_from_log(
 
     return RedirectResponse(url="/admin/receipts/logs", status_code=303)
 
-
 # ELIMINA LOG (opzionale)
 @router.post("/admin/receipts/logs/delete")
-def delete_log(
-    log_id: int = Form(...),
-    session=Depends(get_session),
-):
+def delete_log(session: SessionDep, log_id: int = Form(...)):
     rec = session.get(PrintedReceipt, log_id)
     if rec:
         session.delete(rec)
@@ -79,12 +74,12 @@ def delete_log(
 @router.get("/admin/receipts/logs", response_class=HTMLResponse)
 def logs_page(
     request: Request,
+    session: SessionDep,
     status: Optional[str] = Query(None),
     printer_id: Optional[int] = Query(None),
     q: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(25, ge=1, le=200),
-    session=Depends(get_session),
 ):
     offset = (page - 1) * limit
 
@@ -99,7 +94,7 @@ def logs_page(
             (PrintedReceipt.summary.ilike(like)) | (PrintedReceipt.body.ilike(like))
         )
 
-    # ----- FIX conteggio robusto -----
+    # conteggio robusto
     cnt_stmt = select(func.count()).select_from(base.subquery())
     cnt_res = session.exec(cnt_stmt).one_or_none()
     if cnt_res is None:
@@ -108,7 +103,6 @@ def logs_page(
         total = int(cnt_res[0] or 0)
     else:
         total = int(cnt_res or 0)
-    # ---------------------------------
 
     rows = session.exec(
         base.order_by(desc(PrintedReceipt.created_at)).offset(offset).limit(limit)
@@ -122,16 +116,18 @@ def logs_page(
         "page": page, "limit": limit, "total": total,
         "status": status or "", "printer_id": printer_id or "", "q": q or "",
     })
+
 @router.get("/admin/receipts", response_class=HTMLResponse)
-def receipts_page(request: Request, session=Depends(get_session)):
+def receipts_page(request: Request, session: SessionDep):
     rules = session.exec(select(ReceiptRule).order_by(ReceiptRule.priority)).all()
     printers = session.exec(select(Printer)).all()
     templates_list = session.exec(select(ReceiptTemplate)).all()
     kitchens = session.exec(select(Kitchen)).all()
     products = session.exec(select(Product)).all()
+
     logos_dir = UPLOADS_DIR / "logos"
     logos_dir.mkdir(parents=True, exist_ok=True)
-    logo_files = []
+    logo_files: List[str] = []
     for p in logos_dir.glob("*"):
         if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".bmp"}:
             logo_files.append(p.name)
@@ -150,13 +146,14 @@ def receipts_page(request: Request, session=Depends(get_session)):
         "kitchens": kitchens,
         "products": products,
         "rule_products": rule_products,
-        "logo_files": logo_files,   # <-- NEW
+        "logo_files": logo_files,
     })
+
 @router.post("/admin/receipts/printer/upload_logo")
 def upload_printer_logo(
+    session: SessionDep,
     printer_id: int = Form(...),
     file: UploadFile = File(...),
-    session=Depends(get_session),
 ):
     p = session.get(Printer, printer_id)
     if not p:
@@ -175,18 +172,15 @@ def upload_printer_logo(
         f.write(file.file.read())
 
     p.logo_path = str(dest)  # percorso locale per PIL
-    session.add(p); session.commit()
+    session.add(p)
+    session.commit()
 
     return RedirectResponse(url="/admin/receipts", status_code=303)
-    
-def safe_filename(name: str) -> str:
-    name = os.path.basename(name)
-    name = SAFE_RE.sub("_", name)
-    return name[:120]
-    
+
 # ---------- RULES ----------
 @router.post("/admin/receipts/rule/create")
 def create_rule(
+    session: SessionDep,
     name: str = Form(...),
     mode: str = Form(...),                    # 'kds' | 'product_set'
     kitchen_id: str = Form(""),
@@ -197,7 +191,6 @@ def create_rule(
     consume_lines: str = Form("on"),
     enabled: str = Form("on"),
     product_ids: str = Form(""),
-    session=Depends(get_session),
 ):
     k_id = to_int(kitchen_id, None)
     prn_id = to_int(printer_id)
@@ -225,6 +218,7 @@ def create_rule(
 
 @router.post("/admin/receipts/rule/update")
 def update_rule(
+    session: SessionDep,
     rule_id: int = Form(...),
     name: str = Form(...),
     mode: str = Form(...),
@@ -236,7 +230,6 @@ def update_rule(
     consume_lines: str = Form("on"),
     enabled: str = Form("on"),
     product_ids: str = Form(""),
-    session=Depends(get_session),
 ):
     rule = session.get(ReceiptRule, rule_id)
     if not rule:
@@ -261,7 +254,6 @@ def update_rule(
     rule.enabled = enabled_b
     session.add(rule); session.commit()
 
-    # aggiorna set prodotti se 'product_set'
     if mode == "product_set":
         session.exec(delete(ReceiptRuleProduct).where(ReceiptRuleProduct.rule_id == rule_id))
         if product_ids:
@@ -271,14 +263,13 @@ def update_rule(
                     session.add(ReceiptRuleProduct(rule_id=rule_id, product_id=pid))
         session.commit()
     else:
-        # se non è product_set, pulisci eventuali legami
         session.exec(delete(ReceiptRuleProduct).where(ReceiptRuleProduct.rule_id == rule_id))
         session.commit()
 
     return RedirectResponse(url="/admin/receipts", status_code=303)
 
 @router.post("/admin/receipts/rule/delete")
-def delete_rule(rule_id: int = Form(...), session=Depends(get_session)):
+def delete_rule(session: SessionDep, rule_id: int = Form(...)):
     session.exec(delete(ReceiptRuleProduct).where(ReceiptRuleProduct.rule_id == rule_id))
     r = session.get(ReceiptRule, rule_id)
     if r:
@@ -287,7 +278,7 @@ def delete_rule(rule_id: int = Form(...), session=Depends(get_session)):
     return RedirectResponse(url="/admin/receipts", status_code=303)
 
 @router.post("/admin/receipts/rule/reorder")
-def reorder_rules(order: str = Form(...), session=Depends(get_session)):
+def reorder_rules(session: SessionDep, order: str = Form(...)):
     ids = [to_int(x) for x in order.split(",") if x.strip().isdigit()]
     pr = 10
     for rid in ids:
@@ -301,13 +292,13 @@ def reorder_rules(order: str = Form(...), session=Depends(get_session)):
 
 # ---------- TEMPLATES ----------
 @router.post("/admin/receipts/template/create")
-def create_template(name: str = Form(...), body: str = Form(...), cut: str = Form("on"), session=Depends(get_session)):
+def create_template(session: SessionDep, name: str = Form(...), body: str = Form(...), cut: str = Form("on")):
     t = ReceiptTemplate(name=name, body=body, cut=to_bool(cut))
     session.add(t); session.commit()
     return RedirectResponse(url="/admin/receipts", status_code=303)
 
 @router.post("/admin/receipts/template/update")
-def update_template(tpl_id: int = Form(...), name: str = Form(...), body: str = Form(...), cut: str = Form("on"), session=Depends(get_session)):
+def update_template(session: SessionDep, tpl_id: int = Form(...), name: str = Form(...), body: str = Form(...), cut: str = Form("on")):
     t = session.get(ReceiptTemplate, tpl_id)
     if t:
         t.name = name
@@ -317,8 +308,8 @@ def update_template(tpl_id: int = Form(...), name: str = Form(...), body: str = 
     return RedirectResponse(url="/admin/receipts", status_code=303)
 
 @router.post("/admin/receipts/template/delete")
-def delete_template(tpl_id: int = Form(...), session=Depends(get_session)):
-    # Attenzione: se referenziato da regole, fallirà per FK. In caso, gestire prima regole.
+def delete_template(session: SessionDep, tpl_id: int = Form(...)):
+    # Se referenziato da regole con FK attive, potrebbe fallire.
     t = session.get(ReceiptTemplate, tpl_id)
     if t:
         session.delete(t); session.commit()
@@ -327,9 +318,9 @@ def delete_template(tpl_id: int = Form(...), session=Depends(get_session)):
 # ---------- PRINTERS ----------
 @router.post("/admin/receipts/printer/create")
 def create_printer(
+    session: SessionDep,
     name: str = Form(...), host: str = Form(...), port: str = Form("9100"),
     enabled: str = Form("on"), width_chars: str = Form("32"),
-    session=Depends(get_session)
 ):
     p = Printer(
         name=name, host=host, port=to_int(port, 9100) or 9100,
@@ -340,12 +331,12 @@ def create_printer(
 
 @router.post("/admin/receipts/printer/update")
 def update_printer(
+    session: SessionDep,
     printer_id: int = Form(...),
     name: str = Form(...), host: str = Form(...), port: str = Form("9100"),
     enabled: str = Form("on"), width_chars: str = Form("32"),
-    selected_logo: str = Form(""),           # <-- NEW (dropdown)
-    remove_logo: str = Form(""),             # <-- NEW (checkbox "on")
-    session=Depends(get_session)
+    selected_logo: str = Form(""),
+    remove_logo: str = Form(""),
 ):
     p = session.get(Printer, printer_id)
     if p:
@@ -359,14 +350,13 @@ def update_printer(
         if remove_logo.lower() in ("on", "true", "1"):
             p.logo_path = None
         elif selected_logo:
-            # assegna un logo già presente in uploads/logos
             p.logo_path = str((logos_dir / safe_filename(selected_logo)).resolve())
 
         session.add(p); session.commit()
     return RedirectResponse(url="/admin/receipts", status_code=303)
 
 @router.post("/admin/receipts/printer/delete")
-def delete_printer(printer_id: int = Form(...), session=Depends(get_session)):
+def delete_printer(session: SessionDep, printer_id: int = Form(...)):
     p = session.get(Printer, printer_id)
     if p:
         session.delete(p); session.commit()
@@ -374,7 +364,7 @@ def delete_printer(printer_id: int = Form(...), session=Depends(get_session)):
 
 # ---------- PREVIEW ----------
 @router.post("/admin/receipts/preview")
-def preview_rule(order_id: int = Form(...), rule_id: Optional[int] = Form(None), session=Depends(get_session)):
+def preview_rule(session: SessionDep, order_id: int = Form(...), rule_id: Optional[int] = Form(None)):
     # per semplicità usiamo l'applicazione delle regole normali (stampa reale)
     apply_receipt_rules(session, order_id)
     return RedirectResponse(url="/admin/receipts", status_code=303)

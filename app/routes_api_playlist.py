@@ -1,16 +1,23 @@
+# app/routes_api_playlist.py
+from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Annotated
+from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlmodel import select, Session
-from .db import get_session
+
+from .db import get_session_dep
 from .models_media import Playlist, PlaylistItem, MediaAsset
 
 router = APIRouter(prefix="/api/playlist", tags=["playlist"])
 
+SessionDep = Annotated[Session, Depends(get_session_dep)]
+
 @router.get("/by-screen/{plname}")
-def get_playlist(plname: str, db: Session = Depends(get_session)):
+def get_playlist(plname: str, db: SessionDep):
     pl = db.exec(select(Playlist).where(Playlist.name == plname)).first()
     if not pl:
-        return {"version": 0, "items": []}
+        return JSONResponse({"version": 0, "items": []}, headers={"Cache-Control": "no-store, max-age=0"})
 
     rows = db.exec(
         select(PlaylistItem, MediaAsset)
@@ -19,12 +26,17 @@ def get_playlist(plname: str, db: Session = Depends(get_session)):
         .order_by(PlaylistItem.position.asc())
     ).all()
 
-    items = []
-    for it, m in rows:
-        items.append({
+    items = [
+        {
             "type": m.media_type,   # "image" | "video"
             "url": m.url,
             "mute": bool(m.mute),
             "duration_ms": it.override_duration_ms or m.duration_ms or None,
-        })
-    return {"version": pl.version, "items": items}
+        }
+        for it, m in rows
+    ]
+
+    return JSONResponse(
+        {"version": pl.version, "items": items},
+        headers={"Cache-Control": "no-store, max-age=0"}
+    )

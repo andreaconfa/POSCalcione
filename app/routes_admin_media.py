@@ -1,12 +1,17 @@
+# app/router_admin_media.py
+from __future__ import annotations
+
+from typing import Annotated
+from pathlib import Path
+import shutil, uuid
 
 from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlmodel import Session, select
-from pathlib import Path
 from sqlalchemy import delete
-import shutil, uuid
-from .db import get_session
+from sqlmodel import Session, select
+
+from .db import get_session_dep
 from .models_media import MediaAsset, MediaType, Playlist, PlaylistItem
 
 router = APIRouter()
@@ -15,16 +20,18 @@ templates = Jinja2Templates(directory="app/templates")
 UPLOAD_DIR = Path("app/static/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# Dipendenza tipizzata per la sessione
+SessionDep = Annotated[Session, Depends(get_session_dep)]
 
 @router.get("/admin/media", response_class=HTMLResponse)
-def media_admin(request: Request, db: Session = Depends(get_session), screen: str = "C"):
-    assets = db.exec(select(MediaAsset).order_by(MediaAsset.id.desc())).all()
+def media_admin(request: Request, session: SessionDep, screen: str = "C"):
+    assets = session.exec(select(MediaAsset).order_by(MediaAsset.id.desc())).all()
     plname = f"screen_{screen}"
-    pl = db.exec(select(Playlist).where(Playlist.name == plname)).first()
+    pl = session.exec(select(Playlist).where(Playlist.name == plname)).first()
 
     vm_items = []
     if pl:
-        rows = db.exec(
+        rows = session.exec(
             select(PlaylistItem, MediaAsset)
             .where(PlaylistItem.playlist_id == pl.id)
             .join(MediaAsset, MediaAsset.id == PlaylistItem.media_id)
@@ -45,25 +52,23 @@ def media_admin(request: Request, db: Session = Depends(get_session), screen: st
         "assets": assets,
         "vm_items": vm_items,
         "screen": screen,
-        # passa anche kitchens/routes se hai il selettore in pagina
     })
 
 @router.post("/admin/media/delete")
 def delete_media(
+    session: SessionDep,
     media_id: int = Form(...),
     screen: str = Form("C"),
-    db: Session = Depends(get_session),
 ):
-    m = db.get(MediaAsset, media_id)
+    m = session.get(MediaAsset, media_id)
     if not m:
         return RedirectResponse(url=f"/admin/media?screen={screen}", status_code=303)
 
-    # 1) playlist toccate (lista di tuple -> prendiamo l’indice 0)
-    rows = db.exec(
+    # 1) playlist toccate
+    rows = session.exec(
         select(PlaylistItem.playlist_id).where(PlaylistItem.media_id == media_id)
     ).all()
 
-    # rows può essere [1, 3, 5] oppure [(1,), (3,), (5,)]
     touched = set()
     for r in rows:
         if isinstance(r, (tuple, list)):
@@ -71,19 +76,18 @@ def delete_media(
         else:
             touched.add(r)
 
-    # 2) elimina i riferimenti dalla tabella di join
-    db.exec(delete(PlaylistItem).where(PlaylistItem.media_id == media_id))
+    # 2) elimina riferimenti
+    session.exec(delete(PlaylistItem).where(PlaylistItem.media_id == media_id))
 
-    # 3) bump versione delle playlist impattate
+    # 3) bump versione playlist impattate
     if touched:
-        pls = db.exec(select(Playlist).where(Playlist.id.in_(touched))).all()
+        pls = session.exec(select(Playlist).where(Playlist.id.in_(touched))).all()
         for pl in pls:
             pl.version = (pl.version or 0) + 1
-            db.add(pl)
+            session.add(pl)
 
-    # 4) cancella file fisico se era sotto /static
+    # 4) cancella file fisico se sotto /static
     try:
-        from pathlib import Path
         if (m.url or "").startswith("/static/"):
             fpath = Path("app") / m.url.lstrip("/")
             if fpath.exists():
@@ -92,31 +96,32 @@ def delete_media(
         pass
 
     # 5) elimina asset e commit
-    db.delete(m)
-    db.commit()
+    session.delete(m)
+    session.commit()
 
     return RedirectResponse(url=f"/admin/media?screen={screen}", status_code=303)
 
 @router.post("/admin/media/upload")
 async def upload_media(
+    session: SessionDep,
     file: UploadFile = File(...),
-    duration_ms: str | None = Form(None),   # <-- era: int | None
-    mute: str | None = Form(None),          # <-- per gestire checkbox "on"/vuoto
-    db: Session = Depends(get_session),
+    duration_ms: str | None = Form(None),
+    mute: str | None = Form(None),
 ):
     # normalizza i campi del form
     dur_val = int(duration_ms) if duration_ms and duration_ms.strip() != "" else None
     mute_val = False if (mute in (None, "", "false", "0", "off")) else True
 
     ext = (Path(file.filename).suffix or "").lower()
-    if ext not in [".jpg",".jpeg",".png",".webp",".gif",".mp4",".mov",".webm",".mkv"]:
+    if ext not in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".mov", ".webm", ".mkv"]:
         raise HTTPException(400, "Formato non supportato")
+
     name = f"{uuid.uuid4().hex}{ext}"
     dest = UPLOAD_DIR / name
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    media_type = MediaType.video if ext in [".mp4",".mov",".webm",".mkv"] else MediaType.image
+    media_type = MediaType.video if ext in [".mp4", ".mov", ".webm", ".mkv"] else MediaType.image
     asset = MediaAsset(
         filename=file.filename,
         url=f"/static/uploads/{name}",
@@ -124,26 +129,31 @@ async def upload_media(
         duration_ms=dur_val,
         mute=mute_val,
     )
-    db.add(asset); db.commit(); db.refresh(asset)
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+
     return RedirectResponse(url="/admin/media", status_code=303)
 
 @router.post("/admin/playlist/set")
 def playlist_set(
+    session: SessionDep,
     screen: str = Form(...),
     items_spec: str = Form(""),
-    db: Session = Depends(get_session),
 ):
     plname = f"screen_{screen}"
 
-    pl = db.exec(select(Playlist).where(Playlist.name == plname)).first()
+    pl = session.exec(select(Playlist).where(Playlist.name == plname)).first()
     if not pl:
         pl = Playlist(name=plname, version=1)
-        db.add(pl); db.commit(); db.refresh(pl)
+        session.add(pl)
+        session.commit()
+        session.refresh(pl)
 
     # Pulisci items di QUELLA playlist
-    db.exec(delete(PlaylistItem).where(PlaylistItem.playlist_id == pl.id))
+    session.exec(delete(PlaylistItem).where(PlaylistItem.playlist_id == pl.id))
 
-    # Ricrea in base a items_spec: "mediaId:pos:overrideMs;..."
+    # Ricrea da items_spec: "mediaId:pos:overrideMs;..."
     items = []
     for part in filter(None, (items_spec or "").split(";")):
         mid_str, pos_str, ov_str = (part.split(":") + ["", "", ""])[:3]
@@ -152,12 +162,18 @@ def playlist_set(
         except ValueError:
             continue
         ov = int(ov_str) if ov_str.strip().isdigit() else None
-        items.append(PlaylistItem(playlist_id=pl.id, media_id=mid, position=pos, override_duration_ms=ov))
+        items.append(PlaylistItem(
+            playlist_id=pl.id,
+            media_id=mid,
+            position=pos,
+            override_duration_ms=ov
+        ))
 
     for it in items:
-        db.add(it)
+        session.add(it)
 
-    pl.version += 1
-    db.add(pl)
-    db.commit()
+    pl.version = (pl.version or 0) + 1
+    session.add(pl)
+    session.commit()
+
     return RedirectResponse(url=f"/admin/media?screen={screen}", status_code=303)
